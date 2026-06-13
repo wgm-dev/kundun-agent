@@ -85,6 +85,26 @@ describe('ChunkRepository', () => {
     expect(hits[0]?.relative_path).toBe('src/a.ts');
   });
 
+  it('replaceForFile leaves no stale FTS rows after content changes (contentless delete)', () => {
+    // Contentless FTS5 deletes via the special 'delete' command, which needs
+    // each chunk's ORIGINAL content. This guards against FTS drift: after a
+    // second replace, the OLD content must NOT be findable and the NEW content
+    // must be.
+    expect(t.kdb.hasFts5).toBe(true);
+
+    repo.replaceForFile(fileId, [makeChunk({ content: 'oldtoken alpha', content_hash: 'v1' })]);
+    expect(repo.searchFts('oldtoken', 10)).toHaveLength(1);
+
+    repo.replaceForFile(fileId, [makeChunk({ content: 'newtoken beta', content_hash: 'v2' })]);
+
+    // The replaced (old) content must leave no stale FTS index entry.
+    expect(repo.searchFts('oldtoken', 10)).toHaveLength(0);
+    // The new content must be findable.
+    const hits = repo.searchFts('newtoken', 10);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.content).toBe('newtoken beta');
+  });
+
   it('searchFts excludes chunks of soft-deleted files', () => {
     repo.replaceForFile(fileId, [makeChunk({ content: 'findme token', content_hash: 'x' })]);
     new FileRepository(t.kdb).markDeleted([fileId]);

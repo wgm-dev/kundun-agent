@@ -9,7 +9,7 @@ import type { Database } from 'better-sqlite3';
 import { nowIso } from '../utils/time.js';
 
 /** Latest schema version this build knows how to migrate to. */
-export const LATEST_SCHEMA_VERSION = 2;
+export const LATEST_SCHEMA_VERSION = 3;
 
 /** Context passed to each migration's `up` step. */
 export interface MigrationContext {
@@ -209,6 +209,30 @@ CREATE INDEX IF NOT EXISTS idx_diagnostics_severity ON diagnostics(severity);
 CREATE INDEX IF NOT EXISTS idx_diagnostics_resolved_at ON diagnostics(resolved_at);
 `;
 
+// --- Migration v3: rebuild chunks_fts as a CONTENTLESS FTS5 table. ---
+//
+// v1 created chunks_fts as a default (internal-content) FTS5 table with a
+// UNINDEXED `file_id` column. That had two costs:
+//  - PERF-001: deleting a file's rows via `WHERE file_id = ?` full-scans the FTS
+//    index because UNINDEXED columns are not searchable, making re-index O(N^2).
+//  - PERF-002: an internal-content table stores a SECOND full copy of every
+//    chunk's text, roughly doubling DB size.
+//
+// The contentless variant (content='') stores only the inverted index, no copy
+// of the text, and uses the FTS rowid as the chunk id so per-file deletes go
+// through the chunk id (the indexed rowid) instead of scanning. Dropping and
+// recreating a virtual table inside the per-migration transaction is fine in
+// SQLite. We then rebuild the index from the existing file_chunks rows so
+// already-indexed projects keep working. This is a no-op when FTS5 is absent
+// (there is no chunks_fts to migrate).
+const V3_CHUNKS_FTS_CONTENTLESS = `
+DROP TABLE IF EXISTS chunks_fts;
+
+CREATE VIRTUAL TABLE chunks_fts USING fts5(content, content='', tokenize='unicode61');
+
+INSERT INTO chunks_fts(rowid, content) SELECT id, content FROM file_chunks;
+`;
+
 const migrations: Migration[] = [
   {
     version: 1,
@@ -226,6 +250,17 @@ const migrations: Migration[] = [
     up(db, _ctx) {
       // DDL is transactional in SQLite; runMigrations wraps this in a tx.
       db.exec(V2_DIAGNOSTICS);
+    },
+  },
+  {
+    version: 3,
+    up(db, ctx) {
+      // Only relevant when FTS5 is available; otherwise there is no chunks_fts
+      // table to rebuild and this migration is a no-op. DDL (and the rebuild
+      // INSERT) is transactional in SQLite; runMigrations wraps this in a tx.
+      if (ctx.hasFts5) {
+        db.exec(V3_CHUNKS_FTS_CONTENTLESS);
+      }
     },
   },
 ];

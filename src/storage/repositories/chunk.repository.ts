@@ -1,5 +1,18 @@
 // Repository for `file_chunks` and its FTS5 mirror (`chunks_fts`).
 //
+// `chunks_fts` is a CONTENTLESS FTS5 table (content='', migration v3): it stores
+// only the inverted index, no second copy of the chunk text, and the FTS rowid
+// IS the `file_chunks.id`. There is no `file_id`/`chunk_id` column. Consequences
+// for this repository:
+//  - INSERT a row:   INSERT INTO chunks_fts(rowid, content) VALUES (?, ?)
+//  - DELETE a row:   contentless FTS5 requires the special 'delete' command,
+//                    which needs the ORIGINAL content to remove it from the
+//                    index: INSERT INTO chunks_fts(chunks_fts, rowid, content)
+//                    VALUES('delete', ?, ?). So before deleting base rows we
+//                    must SELECT each chunk's id AND old content and issue the
+//                    delete command per row (this uses idx_file_chunks_file_id,
+//                    O(rows-for-file) — fixing PERF-001's full FTS scan).
+//
 // FTS5 sync is done via EXPLICIT writes inside the SAME transaction as the
 // base-table writes (D3) and is guarded by `kdb.hasFts5` (D1). Prepared
 // statements and the batch transactions are built ONCE in the constructor.
@@ -27,7 +40,12 @@ export class ChunkRepository {
   private readonly hasFts5: boolean;
 
   private readonly deleteByFileStmt: Statement;
-  private readonly deleteFtsByFileStmt: Statement | null;
+  /** Rows (id + old content) for a file, needed to issue the FTS 'delete' command. */
+  private readonly selectIdContentByFileStmt: Statement | null;
+  /** Rows (id + old content) for orphan chunks, needed to issue the FTS 'delete' command. */
+  private readonly selectOrphanIdContentStmt: Statement | null;
+  /** Contentless FTS5 'delete' command: removes rowid's tokens from the index. */
+  private readonly deleteFtsRowStmt: Statement | null;
   private readonly insertChunkStmt: Statement;
   private readonly insertFtsStmt: Statement | null;
   private readonly getByFileStmt: Statement;
@@ -42,8 +60,26 @@ export class ChunkRepository {
     this.hasFts5 = kdb.hasFts5;
 
     this.deleteByFileStmt = this.db.prepare('DELETE FROM file_chunks WHERE file_id = ?');
-    this.deleteFtsByFileStmt = this.hasFts5
-      ? this.db.prepare('DELETE FROM chunks_fts WHERE file_id = ?')
+
+    // Contentless FTS5 deletes need the original (id, content) pair. Selecting
+    // by file_id uses idx_file_chunks_file_id, so this is O(rows-for-file) and
+    // never scans the whole FTS index (PERF-001).
+    this.selectIdContentByFileStmt = this.hasFts5
+      ? this.db.prepare('SELECT id, content FROM file_chunks WHERE file_id = ?')
+      : null;
+    // Orphan = chunk whose file row is missing OR soft-deleted.
+    this.selectOrphanIdContentStmt = this.hasFts5
+      ? this.db.prepare(
+          `SELECT fc.id AS id, fc.content AS content
+             FROM file_chunks fc
+             LEFT JOIN files f ON f.id = fc.file_id
+            WHERE f.id IS NULL OR f.is_deleted = 1`,
+        )
+      : null;
+    this.deleteFtsRowStmt = this.hasFts5
+      ? this.db.prepare(
+          "INSERT INTO chunks_fts (chunks_fts, rowid, content) VALUES ('delete', @rowid, @content)",
+        )
       : null;
 
     this.insertChunkStmt = this.db.prepare(
@@ -54,10 +90,9 @@ export class ChunkRepository {
          (@file_id, @chunk_index, @content, @content_hash, @token_estimate,
           @start_line, @end_line, @created_at, @updated_at)`,
     );
+    // Contentless FTS5: the rowid IS the file_chunks.id; only content is indexed.
     this.insertFtsStmt = this.hasFts5
-      ? this.db.prepare(
-          'INSERT INTO chunks_fts (content, file_id, chunk_id) VALUES (@content, @file_id, @chunk_id)',
-        )
+      ? this.db.prepare('INSERT INTO chunks_fts (rowid, content) VALUES (@rowid, @content)')
       : null;
 
     this.getByFileStmt = this.db.prepare(
@@ -81,10 +116,10 @@ export class ChunkRepository {
     this.replaceForFileTxn = this.db.transaction((args: ReplaceArgs): ReplaceChunksResult => {
       const { fileId, chunks } = args;
 
+      // Remove the file's old rows from the contentless FTS index FIRST (it
+      // needs the original content), THEN delete the base rows.
+      this.removeFtsRowsForFile(fileId);
       this.deleteByFileStmt.run(fileId);
-      if (this.deleteFtsByFileStmt) {
-        this.deleteFtsByFileStmt.run(fileId);
-      }
 
       let inserted = 0;
       let skippedDuplicate = 0;
@@ -112,9 +147,8 @@ export class ChunkRepository {
 
         if (this.insertFtsStmt) {
           this.insertFtsStmt.run({
+            rowid: Number(info.lastInsertRowid),
             content: chunk.content,
-            file_id: fileId,
-            chunk_id: Number(info.lastInsertRowid),
           });
         }
 
@@ -123,6 +157,26 @@ export class ChunkRepository {
 
       return { inserted, skippedDuplicate };
     });
+  }
+
+  /**
+   * Remove every FTS index entry for a file's chunks using the contentless
+   * FTS5 'delete' command. Reads each chunk's (id, content) via the file_id
+   * index — O(rows-for-file), never a full FTS scan. No-op when FTS5 is off.
+   * MUST be called BEFORE the base file_chunks rows are deleted (the delete
+   * command needs the original content).
+   */
+  private removeFtsRowsForFile(fileId: number): void {
+    if (!this.selectIdContentByFileStmt || !this.deleteFtsRowStmt) {
+      return;
+    }
+    const rows = this.selectIdContentByFileStmt.all(fileId) as Array<{
+      id: number;
+      content: string;
+    }>;
+    for (const row of rows) {
+      this.deleteFtsRowStmt.run({ rowid: row.id, content: row.content });
+    }
   }
 
   /**
@@ -136,11 +190,13 @@ export class ChunkRepository {
 
   /** Delete every chunk for a file. FK ON DELETE CASCADE does not cover FTS. */
   deleteForFile(fileId: number): number {
-    if (this.deleteFtsByFileStmt) {
-      this.deleteFtsByFileStmt.run(fileId);
-    }
-    const info = this.deleteByFileStmt.run(fileId);
-    return info.changes;
+    const run = this.db.transaction((): number => {
+      // Clear the FTS index FIRST (needs original content), then base rows.
+      this.removeFtsRowsForFile(fileId);
+      const info = this.deleteByFileStmt.run(fileId);
+      return info.changes;
+    });
+    return run();
   }
 
   /** All chunks for a file, ordered by `chunk_index`. */
@@ -167,11 +223,12 @@ export class ChunkRepository {
       return [];
     }
 
+    // Contentless FTS5: the rowid IS the file_chunks.id (no chunk_id column).
     const rows = this.db
       .prepare(
         `SELECT fc.*, files.relative_path AS relative_path
            FROM chunks_fts
-           JOIN file_chunks fc ON fc.id = chunks_fts.chunk_id
+           JOIN file_chunks fc ON fc.id = chunks_fts.rowid
            JOIN files ON files.id = fc.file_id
           WHERE chunks_fts MATCH ?
             AND files.is_deleted = 0
@@ -228,13 +285,17 @@ export class ChunkRepository {
    */
   deleteOrphans(): number {
     const run = this.db.transaction((): number => {
-      if (this.hasFts5) {
-        this.db
-          .prepare(
-            `DELETE FROM chunks_fts
-              WHERE file_id NOT IN (SELECT id FROM files WHERE is_deleted = 0)`,
-          )
-          .run();
+      // Clear the contentless FTS index for orphan chunks FIRST (the 'delete'
+      // command needs each chunk's original id+content), THEN delete the base
+      // rows. There is no file_id column on the FTS table any more.
+      if (this.selectOrphanIdContentStmt && this.deleteFtsRowStmt) {
+        const rows = this.selectOrphanIdContentStmt.all() as Array<{
+          id: number;
+          content: string;
+        }>;
+        for (const row of rows) {
+          this.deleteFtsRowStmt.run({ rowid: row.id, content: row.content });
+        }
       }
       const info = this.deleteOrphansStmt.run();
       return info.changes;
