@@ -1,0 +1,5 @@
+dist
+coverage
+.kundun
+node_modules
+*.sqlite

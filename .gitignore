@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.kundun/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.log
+.DS_Store
+*.tsbuildinfo
