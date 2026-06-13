@@ -25,15 +25,17 @@ respective owners.
 
 ## Status
 
-This repository is being implemented in milestones. **MVP 1** (this milestone)
-delivers the local core: CLI, SQLite storage, configuration, an incremental and
-safe project scanner, a code indexer with chunking and basic symbol extraction,
-FTS5/`LIKE` search, a persistent memory engine, a task engine, and an
-auto-cleanup engine. The MCP server, heuristic diagnostics, daemon, session
-registry, health/metrics, local API, and Windows desktop app are planned for
-later milestones.
+This repository is being implemented in milestones. **MVP 1 + MVP 2** are
+implemented. MVP 1 delivers the local core: CLI, SQLite storage, configuration,
+an incremental and safe project scanner, a code indexer with chunking and basic
+symbol extraction, FTS5/`LIKE` search, a persistent memory engine, a task
+engine, and an auto-cleanup engine. **MVP 2** adds the **MCP server** (18 tools
+and 8 resources over stdio, started by `kundun mcp`), **heuristic diagnostics**
+(`kundun diagnostics`), and an in-memory event bus. The daemon, session
+registry, persisted health/metrics, local API, and Windows desktop app are
+planned for later milestones.
 
-### Quick start (MVP 1)
+### Quick start
 
 ```bash
 npm install
@@ -61,10 +63,37 @@ kundun task create --title "Add auth" --priority high
 kundun task next
 kundun task list
 
+# Heuristic diagnostics
+kundun diagnostics
+
 # Maintenance
 kundun cleanup --dry-run
 kundun cleanup
 kundun summary
+
+# Start the MCP server (for Claude Code / Codex / Cursor)
+kundun mcp
+```
+
+### Use it in Claude Code
+
+Add Kundun-Agent as an MCP server (stdio). See the full guide:
+[en](docs/en/mcp-integration.md) · [pt-BR](docs/pt-BR/mcp-integration.md).
+
+```json
+{
+  "mcpServers": {
+    "kundun-agent": {
+      "command": "node",
+      "args": [
+        "/abs/path/to/kundun-agent/dist/cli/index.js",
+        "--project-root",
+        "/abs/path/to/your/project",
+        "mcp"
+      ]
+    }
+  }
+}
 ```
 
 ---
@@ -76,6 +105,8 @@ Full bilingual (English + Português) documentation lives in
 
 - **Getting started** — [en](docs/en/getting-started.md) ·
   [pt-BR](docs/pt-BR/getting-started.md)
+- **MCP integration** — [en](docs/en/mcp-integration.md) ·
+  [pt-BR](docs/pt-BR/mcp-integration.md)
 - **CLI reference** — [en](docs/en/cli-reference.md) ·
   [pt-BR](docs/pt-BR/cli-reference.md)
 - **Configuration** — [en](docs/en/configuration.md) ·

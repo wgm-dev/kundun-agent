@@ -17,13 +17,16 @@ it indexes a codebase, stores persistent memory, tracks tasks, runs cleanup, and
 serves agent-friendly context — all locally with SQLite. See the full spec in
 [`README.md`](README.md) (§1–§35).
 
-**Current milestone: MVP 1 is implemented.** It delivers the local core: CLI,
-SQLite storage, config, incremental scanner, indexer + chunker, FTS5/`LIKE`
-search, memory engine, task engine, and auto-cleanup.
+**Current milestones: MVP 1 + MVP 2 are implemented.** MVP 1 is the local core
+(CLI, SQLite storage, config, incremental scanner, indexer + chunker,
+FTS5/`LIKE` search, memory engine, task engine, auto-cleanup). MVP 2 adds the
+**MCP server** (18 tools + 8 resources over stdio, started by `kundun mcp`),
+**heuristic diagnostics** (`kundun diagnostics`), and an in-memory **event bus**.
 
-**Out of scope until later milestones** (do not implement unless asked):
-heuristic diagnostics, MCP server/tools/resources, daemon, session registry,
-health/metrics, local HTTP API + WebSocket, and the Go+Wails desktop app.
+**Out of scope until later milestones** (do not implement unless asked): daemon,
+session registry, health/metrics persistence (`metrics_snapshots`/`health_events`
+tables — current `get_health`/`get_metrics` are computed, not stored), local HTTP
+API + WebSocket, and the Go+Wails desktop app.
 
 ---
 
@@ -128,7 +131,15 @@ src/
     task-engine.ts             # task CRUD + next()
     cleanup-engine.ts          # dry-run/real retention; VACUUM after commit
     project-summary.ts         # read-only aggregate for `summary`
+    diagnostics-engine.ts      # MVP2: heuristic diagnostics runner
+    diagnostics/rules.ts       # MVP2: per-language regex rules (no code execution)
+    event-bus.ts               # MVP2: in-memory event bus
     container.ts               # COMPOSITION ROOT: createAppContext + build* helpers
+
+  mcp/                         # MVP2: depends on core + storage (top layer, like cli)
+    server.ts                  # startMcpServer over stdio (shared AppContext)
+    tools.ts                   # registerTools: 18 kundun.* tools
+    resources.ts               # registerResources: 8 kundun://project/* resources
 
   languages/                   # depends on: storage/types only
     index.ts                   # EXTRACTORS registry + getExtractor(lang)
@@ -138,7 +149,7 @@ src/
     index.ts                   # commander program; global --project-root/--json
     shared.ts                  # arg parsing + AppContext helpers + output helpers
     commands/                  # one file per command; export register<Name>Command
-      {init,scan,search,symbol,memory,task,cleanup,summary}.ts
+      {init,scan,search,symbol,memory,task,cleanup,summary,diagnostics,mcp}.ts
 
 tests/
   helpers/                     # test-db (temp-file sqlite), temp-project, clock, logger

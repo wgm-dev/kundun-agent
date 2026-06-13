@@ -177,6 +177,33 @@ export interface CleanupRunRow {
   status: string;
 }
 
+/** Allowed diagnostic severities (diagnostics.severity). */
+export type DiagnosticSeverity = 'info' | 'warning' | 'error' | 'critical';
+
+/**
+ * Row of `diagnostics` (migration v2, README 9.7). `file_id` is nullable because
+ * the FK is `ON DELETE SET NULL`; global diagnostics also carry a null file_id.
+ */
+export interface DiagnosticRow {
+  id: number;
+  file_id: number | null;
+  language: string | null;
+  severity: DiagnosticSeverity;
+  code: string | null;
+  message: string;
+  line: number | null;
+  column: number | null;
+  source: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+/**
+ * Insert shape for `diagnostics`. We omit `id` (AUTOINCREMENT) and `created_at`
+ * (stamped by the repository from utils/time.ts).
+ */
+export type NewDiagnosticRow = Omit<DiagnosticRow, 'id' | 'created_at'>;
+
 /**
  * Handle to an open Kundun SQLite database.
  * `hasFts5` is detected ONCE at open time (D1); consumers read this flag and

@@ -9,7 +9,7 @@ import type { Database } from 'better-sqlite3';
 import { nowIso } from '../utils/time.js';
 
 /** Latest schema version this build knows how to migrate to. */
-export const LATEST_SCHEMA_VERSION = 1;
+export const LATEST_SCHEMA_VERSION = 2;
 
 /** Context passed to each migration's `up` step. */
 export interface MigrationContext {
@@ -185,6 +185,30 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
 );
 `;
 
+// --- Migration v2: the diagnostics table and its indexes (README 9.7). ---
+
+const V2_DIAGNOSTICS = `
+CREATE TABLE IF NOT EXISTS diagnostics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id INTEGER,
+  language TEXT,
+  severity TEXT NOT NULL,
+  code TEXT,
+  message TEXT NOT NULL,
+  line INTEGER,
+  column INTEGER,
+  source TEXT,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_diagnostics_file_id ON diagnostics(file_id);
+CREATE INDEX IF NOT EXISTS idx_diagnostics_language ON diagnostics(language);
+CREATE INDEX IF NOT EXISTS idx_diagnostics_severity ON diagnostics(severity);
+CREATE INDEX IF NOT EXISTS idx_diagnostics_resolved_at ON diagnostics(resolved_at);
+`;
+
 const migrations: Migration[] = [
   {
     version: 1,
@@ -195,6 +219,13 @@ const migrations: Migration[] = [
       if (ctx.hasFts5) {
         db.exec(V1_FTS);
       }
+    },
+  },
+  {
+    version: 2,
+    up(db, _ctx) {
+      // DDL is transactional in SQLite; runMigrations wraps this in a tx.
+      db.exec(V2_DIAGNOSTICS);
     },
   },
 ];

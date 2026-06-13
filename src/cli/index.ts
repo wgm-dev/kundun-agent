@@ -15,6 +15,8 @@ import { registerMemoryCommand } from './commands/memory.js';
 import { registerTaskCommand } from './commands/task.js';
 import { registerCleanupCommand } from './commands/cleanup.js';
 import { registerSummaryCommand } from './commands/summary.js';
+import { registerDiagnosticsCommand } from './commands/diagnostics.js';
+import { registerMcpCommand } from './commands/mcp.js';
 
 const program = new Command();
 
@@ -34,6 +36,8 @@ registerMemoryCommand(program);
 registerTaskCommand(program);
 registerCleanupCommand(program);
 registerSummaryCommand(program);
+registerDiagnosticsCommand(program);
+registerMcpCommand(program);
 
 program.parseAsync(process.argv).catch((error: unknown) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

@@ -4,15 +4,17 @@ Local-first project intelligence layer for coding agents — indexes your
 codebase, stores persistent memory, tracks tasks, and serves agent-friendly
 context, all locally with SQLite.
 
-> This documentation covers **MVP 1** (the local core: CLI, storage, scanner,
-> indexer, search, memory, tasks, cleanup). The MCP server, diagnostics,
-> daemon, local API, and desktop app are documented in later milestones.
+> This documentation covers **MVP 1 + MVP 2** (the local core plus the MCP
+> server and heuristic diagnostics). The daemon, session registry,
+> health/metrics, local API, and desktop app are documented in later
+> milestones.
 
 ## 🌍 Languages / Idiomas
 
 | Topic / Tópico                           | English                      | Português (BR)                     |
 | ---------------------------------------- | ---------------------------- | ---------------------------------- |
 | Getting started / Primeiros passos       | [en](en/getting-started.md)  | [pt-BR](pt-BR/getting-started.md)  |
+| MCP integration / Integração MCP         | [en](en/mcp-integration.md)  | [pt-BR](pt-BR/mcp-integration.md)  |
 | Configuration / Configuração             | [en](en/configuration.md)    | [pt-BR](pt-BR/configuration.md)    |
 | CLI reference / Referência da CLI        | [en](en/cli-reference.md)    | [pt-BR](pt-BR/cli-reference.md)    |
 | Architecture / Arquitetura               | [en](en/architecture.md)     | [pt-BR](pt-BR/architecture.md)     |
