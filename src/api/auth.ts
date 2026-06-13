@@ -2,8 +2,12 @@
 //
 // Security model (locked):
 // - A 32-byte random token is generated on first use and persisted at
-//   {runtimeDir}/token with 0600 permissions. It is cached in memory and is
-//   NEVER logged.
+//   {runtimeDir}/token. It is cached in memory and is NEVER logged.
+// - On POSIX the file is created with 0600. On Windows `chmod`/`mode` only
+//   toggles the read-only bit (it does NOT yield an owner-only DACL), so we
+//   additionally restrict the file's ACL with `icacls` (break inheritance,
+//   grant the current user + SYSTEM only). Best-effort: a failure to tighten
+//   the ACL is logged as a warning, never fatal.
 // - Presented tokens are compared with a length check followed by
 //   crypto.timingSafeEqual on raw Buffers. Any malformed input yields false.
 // - HTTP requests and the WS upgrade must originate from loopback: the Host
@@ -11,7 +15,9 @@
 //   must also be loopback. These checks run BEFORE auth.
 
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import type { Logger } from '../utils/logger.js';
@@ -80,6 +86,7 @@ export function createTokenStore(opts: TokenStoreOptions): TokenStore {
     // Re-assert permissions: writeFileSync's mode is subject to umask and is
     // ignored when the file already exists.
     fs.chmodSync(tokenPath, 0o600);
+    restrictWindowsAcl(tokenPath, logger);
     cached = token;
     logger?.info('generated new API token', { tokenPath });
     return cached;
@@ -258,6 +265,32 @@ function headerValue(value: string | string[] | undefined): string | undefined {
     return value[0];
   }
   return value;
+}
+
+/**
+ * Tighten the token file's ACL on Windows, where POSIX `chmod` does not produce
+ * an owner-only DACL (the file otherwise inherits the parent directory's broad
+ * ACL). Breaks inheritance and grants only the current user and SYSTEM full
+ * control. Best-effort: any failure is logged and ignored — the token is still
+ * protected by the loopback-only bind, so this must never block startup.
+ * No-op on non-Windows platforms.
+ */
+function restrictWindowsAcl(filePath: string, logger?: Logger): void {
+  if (process.platform !== 'win32') {
+    return;
+  }
+  const user = os.userInfo().username;
+  try {
+    execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${user}:F`, 'SYSTEM:F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+  } catch (err) {
+    logger?.warn('could not restrict token file ACL on Windows', {
+      tokenPath: filePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /** Remove a single trailing CR/LF (or CRLF) from a token read from disk. */

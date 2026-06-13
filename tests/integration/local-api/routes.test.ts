@@ -48,6 +48,37 @@ describe('local API routes + limits (integration)', () => {
     expect(res.status).toBe(403);
   });
 
+  it('GET /projects requires the token (regression: B1 no unauth path disclosure)', async () => {
+    const noAuth = await httpGet(`${api.url}/projects`);
+    expect(noAuth.status).toBe(401);
+    const token = api.tokenStore.getToken();
+    const withAuth = await httpGet(`${api.url}/projects`, { token });
+    expect(withAuth.status).toBe(200);
+  });
+
+  it('POST /diagnostics traversal returns 400 with a GENERIC message (regression: R2 no path leak)', async () => {
+    const token = api.tokenStore.getToken();
+    const res = await httpPost(`${api.url}/diagnostics`, {
+      token,
+      body: { path: '../../etc/hosts' },
+    });
+    expect(res.status).toBe(400);
+    const body = res.json as { error?: { code?: string; message?: string } };
+    expect(body.error?.code).toBe('path_traversal_blocked');
+    // The message must NOT echo absolute host paths.
+    expect(body.error?.message).toBe('Path escapes the project root.');
+    expect(body.error?.message ?? '').not.toMatch(/[A-Za-z]:[\\/]|\/(Users|home|tmp|etc)\//);
+  });
+
+  it('POST /diagnostics with a UNC path returns 400, not an unhandled 500 (regression: R3)', async () => {
+    const token = api.tokenStore.getToken();
+    const res = await httpPost(`${api.url}/diagnostics`, {
+      token,
+      body: { path: '//attacker/share/x' },
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('GET /health returns a sane JSON shape', async () => {
     const res = await httpGet(`${api.url}/health`);
     expect(res.status).toBe(200);

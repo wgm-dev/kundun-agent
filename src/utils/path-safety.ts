@@ -26,7 +26,12 @@ function canonicalize(target: string): string {
       // Re-attach the non-existent segments we peeled off (deepest last).
       return tail.length > 0 ? path.resolve(real, ...tail.reverse()) : real;
     } catch (err) {
-      if (!isErrnoException(err) || err.code !== 'ENOENT') {
+      // A non-errno failure is unexpected — rethrow. Otherwise (ENOENT and also
+      // ENOTDIR/EINVAL/UNC-authority errors on Windows) treat this segment as
+      // not-yet-existing and keep walking up, so a bogus path resolves to a
+      // concrete absolute path that the caller's inside-root check then rejects
+      // with a clean 400 rather than escaping as an unhandled 500.
+      if (!isErrnoException(err)) {
         throw err;
       }
       const parent = path.dirname(current);
@@ -94,13 +99,16 @@ export function isInsideRoot(root: string, abs: string): boolean {
   return true;
 }
 
-/** Throw KundunError('path_traversal_blocked') if abs is not inside root. */
+/**
+ * Throw KundunError('path_traversal_blocked') if abs is not inside root. The
+ * error message is intentionally GENERIC — it must not echo absolute paths,
+ * since it can surface to an API client and would otherwise leak the host
+ * filesystem layout. Callers that need detail for debugging should log the
+ * resolved paths server-side.
+ */
 export function assertInsideRoot(root: string, abs: string): void {
   if (!isInsideRoot(root, abs)) {
-    throw new KundunError(
-      'path_traversal_blocked',
-      `Path escapes project root: ${toForwardSlashes(path.resolve(abs))} not inside ${toForwardSlashes(path.resolve(root))}`,
-    );
+    throw new KundunError('path_traversal_blocked', 'Path escapes the project root.');
   }
 }
 
@@ -149,12 +157,10 @@ export function assertNoSymlink(root: string, abs: string): void {
   const rootResolved = path.resolve(root);
   const absResolved = path.resolve(abs);
 
-  // Only inspect segments strictly below the root boundary.
+  // Only inspect segments strictly below the root boundary. Generic message:
+  // no absolute paths in client-facing errors.
   if (!isInsideRoot(rootResolved, absResolved)) {
-    throw new KundunError(
-      'path_traversal_blocked',
-      `Path escapes project root: ${toForwardSlashes(absResolved)} not inside ${toForwardSlashes(rootResolved)}`,
-    );
+    throw new KundunError('path_traversal_blocked', 'Path escapes the project root.');
   }
 
   const relative = path.relative(rootResolved, absResolved);
@@ -181,7 +187,7 @@ export function assertNoSymlink(root: string, abs: string): void {
     if (stat.isSymbolicLink()) {
       throw new KundunError(
         'symlink_escape',
-        `Symbolic link not allowed in path: ${toForwardSlashes(partial)}`,
+        'Symbolic links are not allowed within the project path.',
       );
     }
   }
