@@ -41,3 +41,21 @@ export function toSafeFtsMatch(query: string, opts?: { prefix?: boolean }): stri
 export function escapeLike(query: string): string {
   return query.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
+
+// SQLite rejects LIKE/GLOB patterns longer than SQLITE_MAX_LIKE_PATTERN_LENGTH
+// (50000) with "LIKE or GLOB pattern too complex". Keep some headroom for the
+// surrounding '%...%' wildcards.
+const LIKE_PATTERN_MAX = 49000;
+
+/**
+ * Build a safe `%...%` LIKE pattern from user input, or return null when the
+ * input is too long to use as a LIKE pattern (caller should treat as "no LIKE
+ * match" rather than letting SQLite throw). Escapes `%`, `_`, `\` for ESCAPE '\\'.
+ */
+export function toSafeLikePattern(query: string): string | null {
+  const escaped = escapeLike(query);
+  if (escaped.length > LIKE_PATTERN_MAX) {
+    return null;
+  }
+  return `%${escaped}%`;
+}

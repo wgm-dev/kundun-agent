@@ -7,7 +7,7 @@ import type { Statement } from 'better-sqlite3';
 import type { KundunDb, MemoryRow, NewMemoryRow } from '../types.js';
 import { stringifyArray } from '../../utils/json.js';
 import { nowIso } from '../../utils/time.js';
-import { toSafeFtsMatch, escapeLike } from '../fts.js';
+import { toSafeFtsMatch, escapeLike, toSafeLikePattern } from '../fts.js';
 
 /** Patch shape accepted by {@link MemoryRepository.update}. */
 export interface MemoryUpdatePatch {
@@ -199,8 +199,13 @@ export class MemoryRepository {
     const params: Record<string, unknown> = { limit };
 
     if (query != null && query.length > 0) {
-      params['like'] = `%${escapeLike(query)}%`;
-      where.push("(m.title LIKE @like ESCAPE '\\' OR m.content LIKE @like ESCAPE '\\')");
+      // Skip the LIKE clause entirely when the pattern is too long for SQLite
+      // (avoids "LIKE or GLOB pattern too complex"); other filters still apply.
+      const pattern = toSafeLikePattern(query);
+      if (pattern !== null) {
+        params['like'] = pattern;
+        where.push("(m.title LIKE @like ESCAPE '\\' OR m.content LIKE @like ESCAPE '\\')");
+      }
     }
     this.applyFilters(opts, where, params);
 

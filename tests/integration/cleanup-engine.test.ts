@@ -227,6 +227,18 @@ describe('cleanup engine (integration)', () => {
     expect(countRows('file_chunks')).toBe(1);
     expect(result.removedChunks).toBe(2);
 
+    // Regression (R1): hard-deleting files must also clear the contentless FTS
+    // index — CASCADE does NOT cover chunks_fts. No ghost FTS rowids may remain.
+    if (kdb.hasFts5) {
+      expect(countRows('chunks_fts')).toBe(countRows('file_chunks'));
+      const orphanFts = kdb.db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM chunks_fts WHERE rowid NOT IN (SELECT id FROM file_chunks)',
+        )
+        .get() as { n: number };
+      expect(orphanFts.n).toBe(0);
+    }
+
     // Expired low-importance memory removed; HIGH-importance expired memory survives.
     expect(memoryRepo.getById(lowMemoryId)).toBeUndefined();
     expect(memoryRepo.getById(highMemoryId)).toBeDefined();

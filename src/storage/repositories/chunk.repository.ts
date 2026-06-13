@@ -21,7 +21,7 @@
 
 import type { Database, Statement, Transaction } from 'better-sqlite3';
 import type { FileChunkRow, KundunDb, NewChunkRow } from '../types.js';
-import { toSafeFtsMatch, escapeLike } from '../fts.js';
+import { toSafeFtsMatch, toSafeLikePattern } from '../fts.js';
 
 /** A chunk search result enriched with the owning file's relative path. */
 export type ChunkHit = FileChunkRow & { relative_path: string };
@@ -252,18 +252,23 @@ export class ChunkRepository {
    * importance.
    */
   searchLike(query: string, limit: number): ChunkHit[] {
-    const escaped = escapeLike(query);
+    // Returns null when the query is too long to be a valid LIKE pattern; treat
+    // that as "no match" rather than letting SQLite throw "pattern too complex".
+    const pattern = toSafeLikePattern(query);
+    if (pattern === null) {
+      return [];
+    }
     const rows = this.db
       .prepare(
         `SELECT fc.*, files.relative_path AS relative_path
            FROM file_chunks fc
            JOIN files ON files.id = fc.file_id
-          WHERE fc.content LIKE '%' || ? || '%' ESCAPE '\\'
+          WHERE fc.content LIKE ? ESCAPE '\\'
             AND files.is_deleted = 0
           ORDER BY files.importance_score DESC
           LIMIT ?`,
       )
-      .all(escaped, limit);
+      .all(pattern, limit);
     return rows as ChunkHit[];
   }
 

@@ -212,7 +212,14 @@ function runReal(
   // All DB mutations share ONE transaction so a failure rolls everything back.
   transaction(kdb.db, () => {
     // 1. Hard-delete old soft-deleted files. ON DELETE CASCADE removes their
-    //    chunks and symbols; we already counted those as cascaded above.
+    //    chunks and symbols (regular tables), but it does NOT cover the
+    //    contentless chunks_fts index — that must be cleared explicitly via the
+    //    'delete' command (which needs the original content) BEFORE the base
+    //    chunk rows go away. deleteForFile does exactly that, so call it for
+    //    each file first to avoid leaking ghost FTS rowids.
+    for (const fileId of candidates.fileIds) {
+      chunkRepo.deleteForFile(fileId);
+    }
     removedFiles = fileRepo.deleteHard(candidates.fileIds);
     removedChunks += candidates.cascadedChunks;
     removedSymbols += candidates.cascadedSymbols;

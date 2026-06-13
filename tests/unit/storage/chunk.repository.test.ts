@@ -52,6 +52,15 @@ describe('ChunkRepository', () => {
     expect(stored.map((c) => c.content)).toEqual(['alpha', 'beta']);
   });
 
+  it('search with an extremely long query returns empty, never throws (regression: LIKE too complex)', () => {
+    repo.replaceForFile(fileId, [makeChunk({ content: 'normal content', content_hash: 'h0' })]);
+    const huge = 'x'.repeat(60000); // exceeds SQLITE_MAX_LIKE_PATTERN_LENGTH (50000)
+    expect(() => repo.searchFts(huge, 10)).not.toThrow();
+    expect(repo.searchFts(huge, 10)).toEqual([]);
+    expect(() => repo.searchLike(huge, 10)).not.toThrow();
+    expect(repo.searchLike(huge, 10)).toEqual([]);
+  });
+
   it('replaceForFile replaces previous chunks rather than appending', () => {
     repo.replaceForFile(fileId, [makeChunk({ content: 'old', content_hash: 'old' })]);
     repo.replaceForFile(fileId, [makeChunk({ content: 'new', content_hash: 'new' })]);
