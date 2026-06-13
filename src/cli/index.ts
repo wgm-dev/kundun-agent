@@ -17,6 +17,12 @@ import { registerCleanupCommand } from './commands/cleanup.js';
 import { registerSummaryCommand } from './commands/summary.js';
 import { registerDiagnosticsCommand } from './commands/diagnostics.js';
 import { registerMcpCommand } from './commands/mcp.js';
+import { registerDaemonCommand } from './commands/daemon.js';
+import { registerSessionsCommand } from './commands/sessions.js';
+import { registerHealthCommand } from './commands/health.js';
+import { registerStatusCommand } from './commands/status.js';
+import { registerLogsCommand } from './commands/logs.js';
+import { registerRestartCommand } from './commands/restart.js';
 
 const program = new Command();
 
@@ -38,6 +44,12 @@ registerCleanupCommand(program);
 registerSummaryCommand(program);
 registerDiagnosticsCommand(program);
 registerMcpCommand(program);
+registerDaemonCommand(program);
+registerSessionsCommand(program);
+registerHealthCommand(program);
+registerStatusCommand(program);
+registerLogsCommand(program);
+registerRestartCommand(program);
 
 program.parseAsync(process.argv).catch((error: unknown) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

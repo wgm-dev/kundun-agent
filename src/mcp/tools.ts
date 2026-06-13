@@ -28,18 +28,29 @@ import { buildProjectSummary } from '../core/project-summary.js';
 import { createDiagnosticsEngine } from '../core/diagnostics-engine.js';
 import type { RunDiagnosticsOptions } from '../core/diagnostics-engine.js';
 import type { EventBus } from '../core/event-bus.js';
+import { createHealthMonitor, errorsLast24h } from '../core/health-monitor.js';
+import type { SessionRegistry } from '../core/session-registry.js';
 import { DiagnosticRepository } from '../storage/repositories/diagnostic.repository.js';
 import { KundunError } from '../utils/errors.js';
 import type { MemorySearchOptions } from '../storage/repositories/memory.repository.js';
 import type { UpdateTaskPatch } from '../core/task-engine.js';
 import type { SymbolRow } from '../storage/types.js';
-import { resolveWithinRoot } from '../utils/path-safety.js';
+import { nowIso } from '../utils/time.js';
 import { basename } from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 /** Dependencies injected into the tool registrations. */
 export interface RegisterToolsDeps {
   /** Optional in-memory event bus. When present, tools may expose its history. */
   eventBus?: EventBus;
+  /**
+   * Optional process-shared session registry. When present, every tool call is
+   * instrumented against the current session (operation label, tool-call count,
+   * latency sample, error count). Omitted in isolated tests.
+   */
+  sessionRegistry?: SessionRegistry;
+  /** The session id minted for this MCP process; required to instrument calls. */
+  sessionId?: string;
 }
 
 /** Wrap an arbitrary JSON-serializable value into a single text content block. */
@@ -98,16 +109,22 @@ function symbolsForFile(ctx: AppContext, fileId: number): SymbolRow[] {
 }
 
 /**
- * Best-effort resolution of the database file path for health reporting. The
- * configured path is usually relative to the project root; resolve it inside the
- * root, falling back to the raw configured value if resolution fails.
+ * Live database size as page_count * page_size on the OPEN connection (the locked
+ * definition for metrics db_size_bytes). Reflects WAL-pending pages, unlike a
+ * file-size stat which lags until the next checkpoint.
  */
-function resolveDbPath(ctx: AppContext): string {
-  try {
-    return resolveWithinRoot(ctx.projectRoot, ctx.config.databasePath);
-  } catch {
-    return ctx.config.databasePath;
-  }
+function liveDbSizeBytes(ctx: AppContext): number {
+  const pageCount = ctx.kdb.db.pragma('page_count', { simple: true }) as number;
+  const pageSize = ctx.kdb.db.pragma('page_size', { simple: true }) as number;
+  return pageCount * pageSize;
+}
+
+/** Total number of rows in the tasks table (not just open tasks). */
+function totalTaskCount(ctx: AppContext): number {
+  const row = ctx.kdb.db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as
+    | { n: number }
+    | undefined;
+  return row?.n ?? 0;
 }
 
 /**
@@ -119,7 +136,46 @@ export function registerTools(
   getCtx: () => AppContext,
   deps: RegisterToolsDeps,
 ): void {
-  const { eventBus } = deps;
+  const { eventBus, sessionRegistry, sessionId } = deps;
+
+  /**
+   * Wrap a tool handler so EVERY invocation is instrumented against the shared
+   * session registry: set the current-operation label, time the body with a
+   * monotonic clock, and on completion record either a tool call (with its latency)
+   * or an error, then clear the operation. This is the SINGLE point where tool
+   * latency is measured — engines must NOT time themselves. A failing call is
+   * detected via the `isError` flag that {@link guard} stamps on error results
+   * (guard never throws), so recording is correct without re-running the body.
+   *
+   * Generic over the handler's argument tuple so it transparently wraps both
+   * `(args) => ...` and `() => ...` handlers without touching their bodies. When no
+   * registry/sessionId is wired (isolated tests), the handler runs unchanged.
+   */
+  function instrument<A extends unknown[]>(
+    name: string,
+    handler: (...args: A) => CallToolResult,
+  ): (...args: A) => CallToolResult {
+    return (...args: A): CallToolResult => {
+      if (sessionRegistry === undefined || sessionId === undefined) {
+        return handler(...args);
+      }
+      sessionRegistry.setOperation(sessionId, name);
+      const start = performance.now();
+      let result: CallToolResult;
+      try {
+        result = handler(...args);
+      } finally {
+        sessionRegistry.setOperation(sessionId, null);
+      }
+      const elapsedMs = performance.now() - start;
+      if (result.isError === true) {
+        sessionRegistry.recordError(sessionId);
+      } else {
+        sessionRegistry.recordToolCall(sessionId, elapsedMs);
+      }
+      return result;
+    };
+  }
 
   // --- kundun.scan_project -------------------------------------------------
   server.registerTool(
@@ -133,7 +189,7 @@ export function registerTools(
         force: z.boolean().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.scan_project', (args) =>
       guard(() => {
         const ctx = getCtx();
         const scanner = buildScanner(ctx);
@@ -152,6 +208,7 @@ export function registerTools(
           errors: scan.errors.length + indexResult.errors,
         });
       }),
+    ),
   );
 
   // --- kundun.search_code --------------------------------------------------
@@ -166,7 +223,7 @@ export function registerTools(
         limit: z.number().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.search_code', (args) =>
       guard(() => {
         const ctx = getCtx();
         const search = buildSearchProvider(ctx);
@@ -175,6 +232,7 @@ export function registerTools(
         const results = search.searchCode(args.query, opts);
         return jsonResult({ mode: search.mode, results });
       }),
+    ),
   );
 
   // --- kundun.get_file_context ---------------------------------------------
@@ -188,7 +246,7 @@ export function registerTools(
         path: z.string(),
       },
     },
-    (args) =>
+    instrument('kundun.get_file_context', (args) =>
       guard(() => {
         const ctx = getCtx();
         const file = ctx.repos.file.getByRelativePath(args.path);
@@ -238,6 +296,7 @@ export function registerTools(
           diagnostics,
         });
       }),
+    ),
   );
 
   // --- kundun.find_symbol --------------------------------------------------
@@ -253,7 +312,7 @@ export function registerTools(
         kind: z.string().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.find_symbol', (args) =>
       guard(() => {
         const ctx = getCtx();
         const opts: { language?: string; kind?: string } = {};
@@ -269,6 +328,7 @@ export function registerTools(
         }
         return jsonResult({ hits });
       }),
+    ),
   );
 
   // --- kundun.add_memory ---------------------------------------------------
@@ -286,7 +346,7 @@ export function registerTools(
         confidence: z.number().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.add_memory', (args) =>
       guard(() => {
         const ctx = getCtx();
         const memoryEngine = buildMemoryEngine(ctx);
@@ -311,6 +371,7 @@ export function registerTools(
         eventBus?.emit('memory.created', { id });
         return jsonResult({ id });
       }),
+    ),
   );
 
   // --- kundun.search_memory ------------------------------------------------
@@ -326,7 +387,7 @@ export function registerTools(
         limit: z.number().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.search_memory', (args) =>
       guard(() => {
         const ctx = getCtx();
         const memoryEngine = buildMemoryEngine(ctx);
@@ -346,6 +407,7 @@ export function registerTools(
         const rows = memoryEngine.search(opts);
         return jsonResult({ memories: rows });
       }),
+    ),
   );
 
   // --- kundun.list_important_memories --------------------------------------
@@ -358,7 +420,7 @@ export function registerTools(
         limit: z.number().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.list_important_memories', (args) =>
       guard(() => {
         const ctx = getCtx();
         const memoryEngine = buildMemoryEngine(ctx);
@@ -368,6 +430,7 @@ export function registerTools(
             : memoryEngine.listImportant(args.limit);
         return jsonResult({ memories: rows });
       }),
+    ),
   );
 
   // --- kundun.create_task --------------------------------------------------
@@ -383,7 +446,7 @@ export function registerTools(
         relatedFiles: z.array(z.string()).optional(),
       },
     },
-    (args) =>
+    instrument('kundun.create_task', (args) =>
       guard(() => {
         const ctx = getCtx();
         const taskEngine = buildTaskEngine(ctx);
@@ -406,6 +469,7 @@ export function registerTools(
         eventBus?.emit('task.created', { id });
         return jsonResult({ id });
       }),
+    ),
   );
 
   // --- kundun.next_task ----------------------------------------------------
@@ -416,13 +480,14 @@ export function registerTools(
       description: 'Return the single most actionable pending task, or null when none.',
       inputSchema: {},
     },
-    () =>
+    instrument('kundun.next_task', () =>
       guard(() => {
         const ctx = getCtx();
         const taskEngine = buildTaskEngine(ctx);
         const task = taskEngine.next();
         return jsonResult({ task: task ?? null });
       }),
+    ),
   );
 
   // --- kundun.update_task --------------------------------------------------
@@ -439,7 +504,7 @@ export function registerTools(
         priority: z.string().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.update_task', (args) =>
       guard(() => {
         const ctx = getCtx();
         const taskEngine = buildTaskEngine(ctx);
@@ -460,6 +525,7 @@ export function registerTools(
         eventBus?.emit('task.updated', { id: args.taskId });
         return jsonResult({ taskId: args.taskId, updated: true });
       }),
+    ),
   );
 
   // --- kundun.run_diagnostics ----------------------------------------------
@@ -473,7 +539,7 @@ export function registerTools(
         language: z.string().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.run_diagnostics', (args) =>
       guard(() => {
         const ctx = getCtx();
         const engine = createDiagnosticsEngine({ ctx });
@@ -489,6 +555,7 @@ export function registerTools(
         eventBus?.emit('diagnostics.completed', { findings: result.findings });
         return jsonResult(result);
       }),
+    ),
   );
 
   // --- kundun.cleanup ------------------------------------------------------
@@ -501,7 +568,7 @@ export function registerTools(
         dryRun: z.boolean().optional(),
       },
     },
-    (args) =>
+    instrument('kundun.cleanup', (args) =>
       guard(() => {
         const ctx = getCtx();
         const cleanup = buildCleanupEngine(ctx);
@@ -511,6 +578,7 @@ export function registerTools(
         }
         return jsonResult(result);
       }),
+    ),
   );
 
   // --- kundun.project_summary ----------------------------------------------
@@ -521,11 +589,12 @@ export function registerTools(
       description: 'Return a read-only summary of the project (languages, counts, tasks, etc.).',
       inputSchema: {},
     },
-    () =>
+    instrument('kundun.project_summary', () =>
       guard(() => {
         const ctx = getCtx();
         return jsonResult(buildProjectSummary(ctx));
       }),
+    ),
   );
 
   // --- kundun.get_sessions -------------------------------------------------
@@ -533,10 +602,23 @@ export function registerTools(
     'kundun.get_sessions',
     {
       title: 'Get sessions',
-      description: 'Session registry (MVP3). Not available yet; returns an empty list.',
+      description: 'List recent MCP/desktop sessions plus the live active count.',
       inputSchema: {},
     },
-    () => guard(() => jsonResult({ sessions: [], note: 'session registry not available yet' })),
+    instrument('kundun.get_sessions', () =>
+      guard(() => {
+        if (sessionRegistry === undefined) {
+          // No process-shared registry wired (isolated test / one-shot): nothing to
+          // report. We never construct a fresh registry here — its tool-latency ring
+          // and active count are only meaningful on the process singleton.
+          return jsonResult({ sessions: [], activeCount: 0 });
+        }
+        return jsonResult({
+          sessions: sessionRegistry.recent(50),
+          activeCount: sessionRegistry.activeCount(),
+        });
+      }),
+    ),
   );
 
   // --- kundun.get_health ---------------------------------------------------
@@ -544,21 +626,31 @@ export function registerTools(
     'kundun.get_health',
     {
       title: 'Get health',
-      description: 'Minimal computed health snapshot (schema, search mode, last scan, db, files).',
+      description:
+        'Component health report: per-component status, errors in the last 24h, avg tool latency, search mode, schema version.',
       inputSchema: {},
     },
-    () =>
+    instrument('kundun.get_health', () =>
       guard(() => {
         const ctx = getCtx();
-        const lastScan = ctx.repos.run.lastScan();
-        return jsonResult({
-          schemaOk: true,
-          searchMode: ctx.kdb.hasFts5 ? 'fts5' : 'like',
-          lastScan: lastScan?.status ?? null,
-          dbPath: resolveDbPath(ctx),
-          fileCount: ctx.repos.file.countActive(),
+        // Pure read (record:false): never persist a health_event on a read. The
+        // monitor expects averageToolLatencyMs(); the registry exposes
+        // avgToolLatencyMs(), so bridge the method name when a registry is wired.
+        const monitor = createHealthMonitor({
+          ctx,
+          healthRepo: ctx.repos.health,
+          ...(sessionRegistry === undefined
+            ? {}
+            : {
+                sessionRegistry: {
+                  averageToolLatencyMs: (): number | null => sessionRegistry.avgToolLatencyMs(),
+                },
+              }),
+          ...(eventBus === undefined ? {} : { eventBus }),
         });
+        return jsonResult(monitor.check());
       }),
+    ),
   );
 
   // --- kundun.get_metrics --------------------------------------------------
@@ -566,32 +658,44 @@ export function registerTools(
     'kundun.get_metrics',
     {
       title: 'Get metrics',
-      description: 'Minimal computed metrics from row counts and last scan/cleanup durations.',
+      description:
+        'Return the latest persisted metrics snapshot plus a freshly computed snapshot (the read itself does not persist a new row).',
       inputSchema: {},
     },
-    () =>
+    instrument('kundun.get_metrics', () =>
       guard(() => {
         const ctx = getCtx();
+        const iso = nowIso();
         const diagnosticRepo = new DiagnosticRepository(ctx.kdb);
-        const lastScan = ctx.repos.run.lastScan();
-        const lastCleanup = ctx.repos.run.lastCleanup();
-        const tasksTotal = ctx.kdb.db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as
-          | { n: number }
-          | undefined;
-        return jsonResult({
-          counts: {
-            files: ctx.repos.file.countActive(),
-            chunks: ctx.repos.chunk.countAll(),
-            symbols: ctx.repos.symbol.countAll(),
-            memories: ctx.repos.memory.countAll(),
-            tasks: tasksTotal?.n ?? 0,
-            diagnostics: diagnosticRepo.countAll(),
-          },
-          lastScanDurationMs: lastScan?.duration_ms ?? null,
-          lastCleanupDurationMs: lastCleanup?.duration_ms ?? null,
-          note: 'metrics_snapshots table not in MVP2; metrics are computed on demand',
-        });
+
+        // Latest persisted snapshot (the daemon timer is what writes these rows).
+        const latest = ctx.repos.metrics.latest() ?? null;
+
+        // Fresh snapshot computed on demand WITHOUT persisting it. Uses the same
+        // sources as the metrics engine: live PRAGMA db size, the SHARED 24h error
+        // helper, and the process registry for active_sessions / avg tool latency
+        // (null when no registry is wired). Shaped like a NewMetricsSnapshotRow.
+        const fresh = {
+          created_at: iso,
+          active_sessions: sessionRegistry?.activeCount() ?? 0,
+          indexed_files: ctx.repos.file.countActive(),
+          indexed_chunks: ctx.repos.chunk.countAll(),
+          memory_count: ctx.repos.memory.countAll(),
+          task_count: totalTaskCount(ctx),
+          diagnostics_count: diagnosticRepo.countAll(),
+          db_size_bytes: liveDbSizeBytes(ctx),
+          avg_tool_latency_ms: sessionRegistry?.avgToolLatencyMs() ?? null,
+          scan_duration_ms: ctx.repos.run.lastScan()?.duration_ms ?? null,
+          cleanup_duration_ms: ctx.repos.run.lastCleanup()?.duration_ms ?? null,
+          errors_last_24h: errorsLast24h(
+            { healthRepo: ctx.repos.health, runRepo: ctx.repos.run },
+            iso,
+          ),
+        };
+
+        return jsonResult({ latest, snapshot: fresh });
       }),
+    ),
   );
 
   // --- kundun.get_recent_events --------------------------------------------
@@ -599,15 +703,20 @@ export function registerTools(
     'kundun.get_recent_events',
     {
       title: 'Get recent events',
-      description: 'Recent events from the in-memory bus, when a ring buffer is retained.',
-      inputSchema: {},
+      description: 'Most recent events from the in-memory event bus, newest first.',
+      inputSchema: {
+        limit: z.number().optional(),
+      },
     },
-    () =>
+    instrument('kundun.get_recent_events', (args) =>
       guard(() => {
-        // The MVP2 EventBus does not retain history (no ring buffer), so there is
-        // nothing to expose yet.
-        return jsonResult({ events: [], note: 'event history not retained' });
+        const limit = args.limit ?? 50;
+        // recent() is newest-FIRST. When no bus is wired (isolated test), there is
+        // no retained history to surface.
+        const events = eventBus?.recent(limit) ?? [];
+        return jsonResult({ events });
       }),
+    ),
   );
 
   // --- kundun.restart_daemon -----------------------------------------------
@@ -616,16 +725,24 @@ export function registerTools(
     {
       title: 'Restart daemon',
       description:
-        'Restart the background daemon. Guarded by config.allowRestartFromMcp; no daemon exists in MVP2.',
+        'Request an in-process daemon reload. Guarded by config.allowRestartFromMcp; both the disabled and no-daemon cases are NON-error results.',
       inputSchema: {},
     },
-    () =>
+    instrument('kundun.restart_daemon', () =>
       guard(() => {
         const ctx = getCtx();
+        // Disabled by config: NON-error result with an explanatory note (locked).
+        // This is NOT an isError result — the call succeeded, it simply declined.
         if (!ctx.config.allowRestartFromMcp) {
-          return errorResult('restart from MCP is disabled (allowRestartFromMcp=false)');
+          return jsonResult({
+            restarted: false,
+            note: 'Restart from MCP is disabled (config.allowRestartFromMcp = false).',
+          });
         }
-        return jsonResult({ restarted: false, note: 'no daemon is running in MVP2' });
+        // Enabled, but the MCP server (a stdio process) is not the daemon and owns
+        // no reload hook, so there is nothing to restart from here (locked, non-error).
+        return jsonResult({ restarted: false, reason: 'no daemon running' });
       }),
+    ),
   );
 }

@@ -210,6 +210,78 @@ export interface DiagnosticRow {
  */
 export type NewDiagnosticRow = Omit<DiagnosticRow, 'id' | 'created_at'>;
 
+// --- MVP3 observability row types (migration v5) ---
+
+/** Allowed client session lifecycle states (sessions.status). */
+export type SessionStatus = 'active' | 'idle' | 'disconnected' | 'crashed' | 'closed';
+
+/** Allowed health-event severities (health_events.severity). */
+export type HealthSeverity = 'info' | 'warning' | 'error' | 'critical';
+
+/**
+ * Row of `sessions` (migration v5). Tracks a connected MCP/desktop client.
+ * Nullable columns mirror the schema (NULL until populated/ended).
+ */
+export interface SessionRow {
+  id: number;
+  session_id: string;
+  client_name: string | null;
+  client_version: string | null;
+  transport: string | null;
+  project_root: string | null;
+  process_id: number | null;
+  started_at: string;
+  last_activity_at: string | null;
+  ended_at: string | null;
+  status: SessionStatus;
+  tools_called: number;
+  errors_count: number;
+  current_operation: string | null;
+  metadata_json: string | null;
+}
+
+/** Insert shape for `sessions` (id is assigned by AUTOINCREMENT). */
+export type NewSessionRow = Omit<SessionRow, 'id'>;
+
+/** Row of `health_events` (migration v5). */
+export interface HealthEventRow {
+  id: number;
+  source: string;
+  severity: HealthSeverity;
+  message: string;
+  details_json: string | null;
+  created_at: string;
+}
+
+/**
+ * Insert shape for `health_events`. We omit `id` (AUTOINCREMENT) and `created_at`
+ * (stamped by the repository from utils/time.ts).
+ */
+export type NewHealthEventRow = Omit<HealthEventRow, 'id' | 'created_at'>;
+
+/** Row of `metrics_snapshots` (migration v5). Nullable REAL/INTEGER cols as T|null. */
+export interface MetricsSnapshotRow {
+  id: number;
+  created_at: string;
+  active_sessions: number;
+  indexed_files: number;
+  indexed_chunks: number;
+  memory_count: number;
+  task_count: number;
+  diagnostics_count: number;
+  db_size_bytes: number;
+  avg_tool_latency_ms: number | null;
+  scan_duration_ms: number | null;
+  cleanup_duration_ms: number | null;
+  errors_last_24h: number;
+}
+
+/**
+ * Insert shape for `metrics_snapshots`. We omit `id` (AUTOINCREMENT) and
+ * `created_at` (stamped by the repository from utils/time.ts).
+ */
+export type NewMetricsSnapshotRow = Omit<MetricsSnapshotRow, 'id' | 'created_at'>;
+
 /**
  * Handle to an open Kundun SQLite database.
  * `hasFts5` is detected ONCE at open time (D1); consumers read this flag and

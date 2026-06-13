@@ -9,7 +9,7 @@ import type { Database } from 'better-sqlite3';
 import { nowIso } from '../utils/time.js';
 
 /** Latest schema version this build knows how to migrate to. */
-export const LATEST_SCHEMA_VERSION = 4;
+export const LATEST_SCHEMA_VERSION = 5;
 
 /** Context passed to each migration's `up` step. */
 export interface MigrationContext {
@@ -246,6 +246,71 @@ const V4_FILES_DELETED_AT = `
 ALTER TABLE files ADD COLUMN deleted_at TEXT;
 `;
 
+// --- Migration v5: MVP3 observability tables (sessions, health, metrics). ---
+//
+// Adds three independent tables that back the desktop/local-API health and
+// metrics surface: client session tracking, health/incident events, and periodic
+// metrics snapshots. All three are standalone (no FKs into the index tables) so
+// they can be written and pruned independently of the scan/index lifecycle.
+const V5_OBSERVABILITY = `
+CREATE TABLE IF NOT EXISTS sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL UNIQUE,
+  client_name TEXT,
+  client_version TEXT,
+  transport TEXT,
+  project_root TEXT,
+  process_id INTEGER,
+  started_at TEXT NOT NULL,
+  last_activity_at TEXT,
+  ended_at TEXT,
+  status TEXT NOT NULL,
+  tools_called INTEGER NOT NULL DEFAULT 0,
+  errors_count INTEGER NOT NULL DEFAULT 0,
+  current_operation TEXT,
+  metadata_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS health_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  message TEXT NOT NULL,
+  details_json TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS metrics_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL,
+  active_sessions INTEGER NOT NULL DEFAULT 0,
+  indexed_files INTEGER NOT NULL DEFAULT 0,
+  indexed_chunks INTEGER NOT NULL DEFAULT 0,
+  memory_count INTEGER NOT NULL DEFAULT 0,
+  task_count INTEGER NOT NULL DEFAULT 0,
+  diagnostics_count INTEGER NOT NULL DEFAULT 0,
+  db_size_bytes INTEGER NOT NULL DEFAULT 0,
+  avg_tool_latency_ms REAL,
+  scan_duration_ms INTEGER,
+  cleanup_duration_ms INTEGER,
+  errors_last_24h INTEGER NOT NULL DEFAULT 0
+);
+`;
+
+const V5_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_client_name ON sessions(client_name);
+CREATE INDEX IF NOT EXISTS idx_sessions_project_root ON sessions(project_root);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_activity_at ON sessions(last_activity_at);
+
+CREATE INDEX IF NOT EXISTS idx_health_events_source ON health_events(source);
+CREATE INDEX IF NOT EXISTS idx_health_events_severity ON health_events(severity);
+CREATE INDEX IF NOT EXISTS idx_health_events_created_at ON health_events(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_metrics_snapshots_created_at ON metrics_snapshots(created_at);
+`;
+
 const migrations: Migration[] = [
   {
     version: 1,
@@ -280,6 +345,14 @@ const migrations: Migration[] = [
     version: 4,
     up(db, _ctx) {
       db.exec(V4_FILES_DELETED_AT);
+    },
+  },
+  {
+    version: 5,
+    up(db, _ctx) {
+      // DDL is transactional in SQLite; runMigrations wraps this in a tx.
+      db.exec(V5_OBSERVABILITY);
+      db.exec(V5_INDEXES);
     },
   },
 ];

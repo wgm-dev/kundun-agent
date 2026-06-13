@@ -14,7 +14,10 @@ export type KundunErrorCode =
   | 'storage_locked'
   | 'not_initialized'
   | 'not_found'
-  | 'invalid_argument';
+  | 'invalid_argument'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'payload_too_large';
 
 /**
  * Base error for all Kundun domain failures.

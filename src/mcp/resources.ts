@@ -17,8 +17,8 @@ import type { ReadResourceResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AppContext } from '../core/container.js';
 import { buildMemoryEngine, buildTaskEngine } from '../core/container.js';
 import { buildProjectSummary } from '../core/project-summary.js';
+import { createHealthMonitor } from '../core/health-monitor.js';
 import { DiagnosticRepository } from '../storage/repositories/diagnostic.repository.js';
-import { nowIso } from '../utils/time.js';
 
 /** Common MIME type for every Kundun resource payload. */
 const JSON_MIME = 'application/json';
@@ -33,67 +33,34 @@ interface ResourceDef {
   load(ctx: AppContext): unknown;
 }
 
+/** How many recent persisted metrics snapshots the metrics resource surfaces. */
+const METRICS_RECENT_LIMIT = 50;
+
+/** How many recent sessions the sessions resource surfaces. */
+const SESSIONS_RECENT_LIMIT = 100;
+
 /**
- * Minimal health object shared with the `get_health` tool. Derived only from
- * MVP1/MVP2 data (engine availability is static in headless mode; real
- * health/metrics telemetry arrives in MVP3). Kept as a plain object so the tool
- * layer can reuse the exact same shape.
+ * Real component health report shared with the `get_health` tool. Built from the
+ * shared {@link createHealthMonitor} as a pure read (record:false): per-component
+ * status, errors in the last 24h, search mode, schema version. A resource has no
+ * access to the in-process session registry, so `avgToolLatencyMs` is reported as
+ * null here (the tool path, which does hold the registry, fills it in).
  */
 export function buildHealthSnapshot(ctx: AppContext): Record<string, unknown> {
-  const lastScan = ctx.repos.run.lastScan();
-  const lastCleanup = ctx.repos.run.lastCleanup();
-  return {
-    status: 'ok',
-    checkedAt: nowIso(),
-    database: {
-      open: true,
-      walEnabled: true,
-      fts5: ctx.kdb.hasFts5,
-    },
-    engines: {
-      scanner: 'ready',
-      indexer: 'ready',
-      search: ctx.kdb.hasFts5 ? 'fts5' : 'like',
-      memory: 'ready',
-      task: 'ready',
-      diagnostics: ctx.config.enableDiagnostics ? 'ready' : 'disabled',
-      cleanup: ctx.config.enableAutoCleanup ? 'ready' : 'disabled',
-    },
-    lastScan: {
-      at: lastScan?.started_at ?? null,
-      status: lastScan?.status ?? null,
-    },
-    lastCleanup: {
-      at: lastCleanup?.started_at ?? null,
-      status: lastCleanup?.status ?? null,
-    },
-    note: 'health telemetry is minimal until MVP3',
-  };
+  const monitor = createHealthMonitor({ ctx, healthRepo: ctx.repos.health });
+  return monitor.check() as unknown as Record<string, unknown>;
 }
 
 /**
- * Minimal metrics object shared with the `get_metrics` tool. Computes current
- * counts and the last scan/cleanup durations on demand; persisted
- * metrics_snapshots are an MVP3 concern. Same shape returned by `get_metrics`.
+ * Real metrics payload shared with the `get_metrics` tool: the latest persisted
+ * metrics snapshot plus a short window of recent snapshots, read straight from the
+ * MetricsRepository. Resources do not take a fresh snapshot (that is the daemon
+ * timer's job and requires the live registry); they surface what is persisted.
  */
 export function buildMetricsSnapshot(ctx: AppContext): Record<string, unknown> {
-  const lastScan = ctx.repos.run.lastScan();
-  const lastCleanup = ctx.repos.run.lastCleanup();
-  const diagnosticRepo = new DiagnosticRepository(ctx.kdb);
-  return {
-    capturedAt: nowIso(),
-    indexedFiles: ctx.repos.file.countActive(),
-    indexedChunks: ctx.repos.chunk.countAll(),
-    symbols: ctx.repos.symbol.countAll(),
-    memories: ctx.repos.memory.countAll(),
-    openTasks: ctx.repos.task.countOpen(),
-    diagnostics: diagnosticRepo.countAll(),
-    diagnosticsBySeverity: diagnosticRepo.countBySeverity(),
-    searchMode: ctx.kdb.hasFts5 ? 'fts5' : 'like',
-    scanDurationMs: lastScan?.duration_ms ?? null,
-    cleanupDurationMs: lastCleanup?.duration_ms ?? null,
-    note: 'metrics snapshots are not persisted until MVP3',
-  };
+  const latest = ctx.repos.metrics.latest() ?? null;
+  const recent = ctx.repos.metrics.recent(METRICS_RECENT_LIMIT);
+  return { latest, recent };
 }
 
 /** The eight resource definitions, in README §19 order. */
@@ -137,21 +104,26 @@ const RESOURCE_DEFS: readonly ResourceDef[] = [
     name: 'project-sessions',
     uri: 'kundun://project/sessions',
     title: 'Sessions',
-    description: 'Active and recent MCP sessions (not available until MVP3).',
-    load: () => ({ sessions: [], note: 'not available until MVP3' }),
+    description: 'Recent MCP/desktop sessions plus the current active count.',
+    // Read persisted session rows directly: a resource has no handle on the
+    // in-process registry, but every session is mirrored to the sessions table.
+    load: (ctx) => ({
+      sessions: ctx.repos.session.listRecent(SESSIONS_RECENT_LIMIT),
+      activeCount: ctx.repos.session.activeCount(),
+    }),
   },
   {
     name: 'project-health',
     uri: 'kundun://project/health',
     title: 'Health',
-    description: 'Current minimal health status of the local engines and database.',
+    description: 'Current component health report (status, errors_24h, search mode, schema).',
     load: (ctx) => buildHealthSnapshot(ctx),
   },
   {
     name: 'project-metrics',
     uri: 'kundun://project/metrics',
     title: 'Metrics',
-    description: 'Current minimal metrics: counts and last run durations.',
+    description: 'Latest persisted metrics snapshot plus a window of recent snapshots.',
     load: (ctx) => buildMetricsSnapshot(ctx),
   },
 ];
