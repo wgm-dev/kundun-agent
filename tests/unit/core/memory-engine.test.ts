@@ -35,6 +35,24 @@ describe('MemoryEngine', () => {
     );
   });
 
+  it('search never throws on adversarial FTS input (regression: memory FTS injection)', () => {
+    engine.add({ type: 'user_note', title: 'index.ts notes', content: 'something about app.ts' });
+    // Dotted filenames, FTS operators, column filters, quotes — all of these
+    // used to raise raw SQLite/FTS5 errors. They must now be sanitized.
+    for (const query of [
+      'index.ts',
+      'app.ts',
+      'foo:bar',
+      'NEAR(a b)',
+      'a OR b',
+      'foo*(',
+      '"',
+      '; DROP TABLE memories;--',
+    ]) {
+      expect(() => engine.search({ query }), `query: ${query}`).not.toThrow();
+    }
+  });
+
   it('add accepts a valid type and stores it', () => {
     const id = engine.add({ type: 'decision', title: 'use sqlite', content: 'D2' });
     const row = engine.getReadOnly(id);

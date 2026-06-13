@@ -8,6 +8,7 @@
 
 import type { Database, Statement, Transaction } from 'better-sqlite3';
 import type { FileChunkRow, KundunDb, NewChunkRow } from '../types.js';
+import { toSafeFtsMatch, escapeLike } from '../fts.js';
 
 /** A chunk search result enriched with the owning file's relative path. */
 export type ChunkHit = FileChunkRow & { relative_path: string };
@@ -150,14 +151,18 @@ export class ChunkRepository {
   /**
    * Full-text search over chunk content (FTS5). The query is sanitized into a
    * safe MATCH expression so arbitrary user input cannot trigger FTS syntax
-   * errors. Returns an empty array when FTS5 is unavailable or the query has no
-   * usable terms.
+   * errors. The last term is treated as a prefix (`"term"*`) so partial
+   * identifiers match (e.g. `Payment` finds `PaymentService`). When the prefix
+   * MATCH yields nothing, falls back to a literal LIKE substring search so an
+   * agent never gets a misleading empty result for text that is clearly
+   * present. Returns an empty array when FTS5 is unavailable or the query has
+   * no usable terms.
    */
   searchFts(query: string, limit: number): ChunkHit[] {
     if (!this.hasFts5) {
       return [];
     }
-    const match = toSafeFtsMatch(query);
+    const match = toSafeFtsMatch(query, { prefix: true });
     if (match === null) {
       return [];
     }
@@ -173,8 +178,15 @@ export class ChunkRepository {
           ORDER BY bm25(chunks_fts)
           LIMIT ?`,
       )
-      .all(match, limit);
-    return rows as ChunkHit[];
+      .all(match, limit) as ChunkHit[];
+
+    // Prefix MATCH can still miss substrings that are not token-prefixes
+    // (e.g. a query that appears mid-token). Fall back to LIKE so "clearly
+    // present" text is found rather than silently returning nothing.
+    if (rows.length === 0) {
+      return this.searchLike(query, limit);
+    }
+    return rows;
   }
 
   /**
@@ -229,31 +241,4 @@ export class ChunkRepository {
     });
     return run();
   }
-}
-
-/**
- * Turn arbitrary user input into a safe FTS5 MATCH expression. Each whitespace
- * separated term is wrapped in double quotes (with inner quotes doubled),
- * neutralizing FTS operators (`*`, `-`, `:`, `NEAR`, parentheses, etc.). Terms
- * are AND-combined by juxtaposition. Returns null when no usable term remains.
- */
-function toSafeFtsMatch(query: string): string | null {
-  const terms = query
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0)
-    // Keep only the parts that carry searchable characters; quoting handles the
-    // rest, but a term that is purely punctuation yields nothing useful.
-    .filter((t) => /[^\s"]/.test(t));
-
-  if (terms.length === 0) {
-    return null;
-  }
-
-  return terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
-}
-
-/** Escape `%`, `_` and `\` for use inside a LIKE pattern with `ESCAPE '\\'`. */
-function escapeLike(query: string): string {
-  return query.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }

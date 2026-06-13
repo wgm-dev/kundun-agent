@@ -14,6 +14,25 @@ describe('createIgnoreMatcher', () => {
     expect(c.skipReason).toBe('sensitive_file');
   });
 
+  it('flags sensitive files in SUBDIRECTORIES at any depth (regression: SEC-001)', () => {
+    const m = createIgnoreMatcher({ projectRoot: ROOT, include: [], exclude: [] });
+    // Bare-glob denylist entries must match the basename at any depth, not just
+    // the project root — secrets commonly live under src/, config/, etc.
+    for (const p of [
+      'src/deploy.key',
+      'src/config/cert.pem',
+      'a/b/c/keystore.p12',
+      'infra/prod.tfstate',
+      'backups/db.dump',
+      'app/id_rsa',
+      'deep/nested/path/private.pfx',
+    ]) {
+      const c = m.classify(p);
+      expect(c.included, `expected ${p} to be sensitive`).toBe(false);
+      expect(c.skipReason, `expected ${p} to be sensitive_file`).toBe('sensitive_file');
+    }
+  });
+
   it('flags a *.pem file as sensitive_file', () => {
     const m = createIgnoreMatcher({ projectRoot: ROOT, include: [], exclude: [] });
     const c = m.classify('server.pem');

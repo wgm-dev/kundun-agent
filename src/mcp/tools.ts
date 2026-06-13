@@ -189,16 +189,28 @@ export function registerTools(
         const symbols = symbolsForFile(ctx, file.id);
 
         // Related memories: best-effort search by file basename, then path.
+        // Wrapped so a search-path failure degrades to [] rather than failing
+        // the whole context tool (defense in depth alongside FTS sanitization).
         const memoryEngine = buildMemoryEngine(ctx);
         const base = basename(args.path);
-        let memories = memoryEngine.search({ query: base, limit: 10 });
-        if (memories.length === 0 && base !== args.path) {
-          memories = memoryEngine.search({ query: args.path, limit: 10 });
+        let memories: ReturnType<typeof memoryEngine.search> = [];
+        try {
+          memories = memoryEngine.search({ query: base, limit: 10 });
+          if (memories.length === 0 && base !== args.path) {
+            memories = memoryEngine.search({ query: args.path, limit: 10 });
+          }
+        } catch {
+          memories = [];
         }
 
         // Related tasks: best-effort search by file path.
         const taskEngine = buildTaskEngine(ctx);
-        const tasks = taskEngine.search(args.path, 10);
+        let tasks: ReturnType<typeof taskEngine.search> = [];
+        try {
+          tasks = taskEngine.search(args.path, 10);
+        } catch {
+          tasks = [];
+        }
 
         // Diagnostics for this file.
         const diagnosticRepo = new DiagnosticRepository(ctx.kdb);

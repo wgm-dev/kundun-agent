@@ -7,6 +7,7 @@ import type { Statement } from 'better-sqlite3';
 import type { KundunDb, MemoryRow, NewMemoryRow } from '../types.js';
 import { stringifyArray } from '../../utils/json.js';
 import { nowIso } from '../../utils/time.js';
+import { toSafeFtsMatch, escapeLike } from '../fts.js';
 
 /** Patch shape accepted by {@link MemoryRepository.update}. */
 export interface MemoryUpdatePatch {
@@ -42,11 +43,6 @@ const MUTABLE_COLUMNS = [
 ] as const;
 
 const DEFAULT_SEARCH_LIMIT = 20;
-
-/** Escape LIKE wildcards so user input is matched literally (ESCAPE '\'). */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
 
 export class MemoryRepository {
   private readonly kdb: KundunDb;
@@ -166,8 +162,17 @@ export class MemoryRepository {
       return this.searchLike(opts);
     }
 
+    // Sanitize user input into a safe MATCH expression (prefix on the last
+    // term). Raw input must never reach MATCH — a dotted filename or an FTS
+    // operator like `col:foo` would otherwise raise a SQLite error or act as
+    // an injection. When nothing usable remains, fall back to recent memories.
+    const match = toSafeFtsMatch(query, { prefix: true });
+    if (match === null) {
+      return this.recent(opts, limit);
+    }
+
     const where: string[] = ['m.archived_at IS NULL'];
-    const params: Record<string, unknown> = { query, limit };
+    const params: Record<string, unknown> = { query: match, limit };
     this.applyFilters(opts, where, params);
 
     const sql = `

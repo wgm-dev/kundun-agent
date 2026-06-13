@@ -70,6 +70,15 @@ export interface IgnoreMatcher {
 // included (we want to match .env, .aws, etc.), case-insensitive throughout.
 const PM_OPTIONS: pm.PicomatchOptions = { dot: true, nocase: true };
 
+// The sensitive denylist additionally enables `basename` matching so that a
+// slash-free pattern (e.g. "*.key", "id_rsa") matches the file's basename at
+// ANY directory depth, not just the project root. picomatch only applies
+// basename matching to patterns that contain no slash, so the "**/..."
+// patterns in the list keep their full-path semantics. This is deliberate
+// defense-in-depth for a security-critical denylist: a secret must never be
+// indexed regardless of where it sits in the tree.
+const SENSITIVE_PM_OPTIONS: pm.PicomatchOptions = { ...PM_OPTIONS, basename: true };
+
 /** Strip leading/trailing slashes so include/exclude entries normalize cleanly. */
 function trimSlashes(value: string): string {
   return value.replace(/^\/+/, '').replace(/\/+$/, '');
@@ -121,7 +130,9 @@ function expandIncludeRoot(entry: string): string[] {
  * instance are constructed here once and closed over by classify/isExcludedDir.
  */
 export function createIgnoreMatcher(opts: IgnoreMatcherOptions): IgnoreMatcher {
-  const sensitiveMatch = buildMatcher(SENSITIVE_PATTERNS);
+  // Sensitive patterns use basename matching so bare globs (e.g. "*.key")
+  // catch secrets in any subdirectory, not only at the project root.
+  const sensitiveMatch = pm(SENSITIVE_PATTERNS, SENSITIVE_PM_OPTIONS);
 
   const expandedExcludes = opts.exclude.flatMap(expandEntry);
   const excludeMatch = buildMatcher(expandedExcludes);
