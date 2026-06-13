@@ -13,6 +13,7 @@ export type KundunErrorCode =
   | 'symlink_escape'
   | 'storage_locked'
   | 'not_initialized'
+  | 'not_found'
   | 'invalid_argument';
 
 /**

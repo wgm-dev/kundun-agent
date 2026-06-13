@@ -130,4 +130,17 @@ describe('TaskEngine.next — priority matrix', () => {
     expect(row?.status).toBe('completed');
     expect(row?.completed_at).toBe('2026-06-14T09:30:00.000Z');
   });
+
+  it('create() rejects an empty/whitespace title (regression)', () => {
+    expect(() => engine.create({ title: '' })).toThrowError(/must not be empty/);
+    expect(() => engine.create({ title: '   ' })).toThrowError(/must not be empty/);
+  });
+
+  it('update() throws not_found for a non-existent id instead of silently succeeding (regression)', () => {
+    expect(() => engine.update(999999, { status: 'completed' })).toThrowError(/not found/i);
+    // A real task still updates fine.
+    const id = seed(repo, 'low', 'pending', clock.now());
+    expect(() => engine.update(id, { priority: 'high' })).not.toThrow();
+    expect(engine.get(id)?.priority).toBe('high');
+  });
 });

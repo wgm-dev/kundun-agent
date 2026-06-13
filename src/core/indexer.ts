@@ -107,11 +107,17 @@ export function createIndexer(deps: IndexerDeps): Indexer {
       return { indexed: false, reason: 'read_error' };
     }
 
-    if (isBinaryBuffer(buffer)) {
+    // isBinaryBuffer only samples the first 8KB for speed; a NUL byte further in
+    // would otherwise be persisted into chunk content + the FTS index. A full
+    // indexOf(0) scan is cheap and authoritative: any NUL means binary.
+    if (isBinaryBuffer(buffer) || buffer.indexOf(0) !== -1) {
       return { indexed: false, reason: 'binary' };
     }
 
-    const content = normalizeNewlines(buffer.toString('utf8'));
+    // Strip a leading UTF-8 BOM so it does not survive as an invisible U+FEFF
+    // at the start of the first chunk (and any future first-line/exact logic).
+    const decoded = buffer.toString('utf8').replace(/^\uFEFF/, '');
+    const content = normalizeNewlines(decoded);
 
     // Symbols are extracted only when the language is enabled in config; content
     // is still chunked for search regardless (an unknown/disabled language is

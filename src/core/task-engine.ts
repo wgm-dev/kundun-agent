@@ -112,6 +112,11 @@ export function createTaskEngine(deps: TaskEngineDeps): TaskEngine {
 
   return {
     create(input: CreateTaskInput): number {
+      // Reject empty/whitespace titles — a blank task would be actionable
+      // (eligible for next()) yet meaningless.
+      if (input.title.trim().length === 0) {
+        throw new KundunError('invalid_argument', 'Task title must not be empty.');
+      }
       // Default priority to 'medium' when omitted; validate when provided.
       const priority = input.priority == null ? DEFAULT_PRIORITY : validatePriority(input.priority);
       const ts = now();
@@ -162,7 +167,10 @@ export function createTaskEngine(deps: TaskEngineDeps): TaskEngine {
 
       // The repository auto-stamps completed_at when status becomes 'completed'
       // and no completed_at is supplied, so we don't set it here.
-      taskRepo.update(id, repoPatch);
+      const changed = taskRepo.update(id, repoPatch);
+      if (changed === 0) {
+        throw new KundunError('not_found', `Task ${id} not found.`);
+      }
     },
 
     get(id: number): TaskRow | undefined {

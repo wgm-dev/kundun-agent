@@ -29,6 +29,7 @@ import { createDiagnosticsEngine } from '../core/diagnostics-engine.js';
 import type { RunDiagnosticsOptions } from '../core/diagnostics-engine.js';
 import type { EventBus } from '../core/event-bus.js';
 import { DiagnosticRepository } from '../storage/repositories/diagnostic.repository.js';
+import { KundunError } from '../utils/errors.js';
 import type { MemorySearchOptions } from '../storage/repositories/memory.repository.js';
 import type { UpdateTaskPatch } from '../core/task-engine.js';
 import type { SymbolRow } from '../storage/types.js';
@@ -46,14 +47,26 @@ function jsonResult(value: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(value) }] };
 }
 
-/** Wrap an error message into an `isError` text result. */
-function errorResult(message: string): CallToolResult {
-  return { isError: true, content: [{ type: 'text', text: message }] };
+/**
+ * Wrap an error into an `isError` result whose body is ALSO JSON, so a consumer
+ * can `JSON.parse(content[0].text)` uniformly for both success and error
+ * results. A `code` is included (stable KundunError code, or 'error').
+ */
+function errorResult(message: string, code = 'error'): CallToolResult {
+  return {
+    isError: true,
+    content: [{ type: 'text', text: JSON.stringify({ error: { code, message } }) }],
+  };
 }
 
 /** Narrow an unknown caught value to a human-readable message. */
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Stable error code for a caught value (KundunError code when available). */
+function errorCode(err: unknown): string {
+  return err instanceof KundunError ? err.code : 'error';
 }
 
 /**
@@ -64,7 +77,7 @@ function guard(fn: () => CallToolResult): CallToolResult {
   try {
     return fn();
   } catch (err) {
-    return errorResult(errorMessage(err));
+    return errorResult(errorMessage(err), errorCode(err));
   }
 }
 
@@ -364,7 +377,7 @@ export function registerTools(
       title: 'Create task',
       description: 'Create a new task and return its id.',
       inputSchema: {
-        title: z.string(),
+        title: z.string().min(1, 'title must not be empty'),
         description: z.string().optional(),
         priority: z.string().optional(),
         relatedFiles: z.array(z.string()).optional(),

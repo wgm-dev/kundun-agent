@@ -82,8 +82,9 @@ export class TaskRepository {
   /**
    * Dynamic, whitelisted SET update. Always bumps updated_at. When status is set
    * to 'completed' and no completed_at is supplied, completed_at is set to now.
+   * Returns the number of rows changed (0 when the id does not exist).
    */
-  update(id: number, patch: TaskUpdatePatch): void {
+  update(id: number, patch: TaskUpdatePatch): number {
     const assignments: string[] = [];
     const params: Record<string, unknown> = { id };
 
@@ -113,7 +114,10 @@ export class TaskRepository {
       assignments.push('completed_at = @completed_at');
     }
 
-    this.kdb.db.prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = @id`).run(params);
+    const info = this.kdb.db
+      .prepare(`UPDATE tasks SET ${assignments.join(', ')} WHERE id = @id`)
+      .run(params);
+    return info.changes;
   }
 
   /** Fetch a task by id, or undefined when not found. */

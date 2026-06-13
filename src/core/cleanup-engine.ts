@@ -148,15 +148,24 @@ function gatherCandidates(deps: CleanupEngineDeps, nowStr: string): CleanupCandi
   const oldDeletedFiles = fileRepo.listDeletedOlderThan(deletedFilesCutoff);
   const fileIds = oldDeletedFiles.map((f) => f.id);
 
-  let cascadedChunks = 0;
+  const cascadedFileIds = new Set(fileIds);
+  const cascadedChunkIds = new Set<number>();
   let cascadedSymbols = 0;
   for (const id of fileIds) {
-    cascadedChunks += chunkRepo.getByFile(id).length;
+    for (const chunk of chunkRepo.getByFile(id)) {
+      cascadedChunkIds.add(chunk.id);
+    }
     cascadedSymbols += countSymbolsForFile(deps, id);
   }
+  const cascadedChunks = cascadedChunkIds.size;
 
-  const orphanChunkIds = chunkRepo.listOrphanIds();
-  const orphanSymbolIds = symbolRepo.listOrphanIds();
+  // Orphan chunks/symbols of the files we're about to hard-delete are ALREADY
+  // counted as cascaded (the real run cascades first, then finds 0 orphans for
+  // them). Exclude that overlap so dry-run counts match the real run exactly.
+  const orphanChunkIds = chunkRepo.listOrphanIds().filter((id) => !cascadedChunkIds.has(id));
+  const orphanSymbolIds = symbolRepo
+    .listOrphanIds()
+    .filter((id) => !symbolBelongsToFiles(deps, id, cascadedFileIds));
 
   // listExpiredLowImportance NEVER returns importance_score >= threshold, so
   // high-importance memories are preserved by construction.
@@ -340,6 +349,18 @@ function countSymbolsForFile(deps: CleanupEngineDeps, fileId: number): number {
     .prepare('SELECT COUNT(*) AS n FROM symbols WHERE file_id = ?')
     .get(fileId) as { n: number } | undefined;
   return row?.n ?? 0;
+}
+
+/** True when a symbol's owning file_id is one of the cascade-deleted files. */
+function symbolBelongsToFiles(
+  deps: CleanupEngineDeps,
+  symbolId: number,
+  fileIds: ReadonlySet<number>,
+): boolean {
+  const row = deps.kdb.db.prepare('SELECT file_id FROM symbols WHERE id = ?').get(symbolId) as
+    | { file_id: number }
+    | undefined;
+  return row !== undefined && fileIds.has(row.file_id);
 }
 
 /** Non-negative elapsed milliseconds between two ISO timestamps. */
