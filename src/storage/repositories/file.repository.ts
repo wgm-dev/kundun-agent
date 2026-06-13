@@ -4,6 +4,7 @@
 // better-sqlite3 is fully synchronous — no async/await anywhere in this file.
 
 import type { KundunDb, FileRow, NewFileRow } from '../types.js';
+import { nowIso } from '../../utils/time.js';
 
 // SQLite has a hard limit of 999 bind parameters per statement (SQLITE_MAX_VARIABLE_NUMBER
 // on older builds). Keep batched IN(...) clauses well under that.
@@ -58,7 +59,8 @@ export class FileRepository {
          size_bytes = excluded.size_bytes,
          hash = excluded.hash,
          last_modified_at = excluded.last_modified_at,
-         is_deleted = 0`,
+         is_deleted = 0,
+         deleted_at = NULL`,
     );
 
     this.stmtListActive = this.db.prepare<[], FileRow>('SELECT * FROM files WHERE is_deleted = 0');
@@ -75,9 +77,14 @@ export class FileRepository {
       'UPDATE files SET importance_score = ? WHERE id = ?',
     );
 
-    // Soft-deleted files whose content predates `iso` (by last_modified_at).
+    // Soft-deleted files whose DELETION predates `iso`. deleted_at is the
+    // authoritative retention key; legacy rows soft-deleted before the
+    // deleted_at column existed have NULL and fall back to last_modified_at so
+    // they still eventually clean up.
     this.stmtListDeletedOlderThan = this.db.prepare<[string], FileRow>(
-      'SELECT * FROM files WHERE is_deleted = 1 AND last_modified_at < ?',
+      `SELECT * FROM files
+        WHERE is_deleted = 1
+          AND COALESCE(deleted_at, last_modified_at) < ?`,
     );
 
     this.stmtCountActive = this.db.prepare<[], { n: number }>(
@@ -147,10 +154,13 @@ export class FileRepository {
   }
 
   /**
-   * Soft-delete the given file ids (is_deleted = 1), batching to stay under the
-   * SQLite bind-parameter limit. Returns the total number of affected rows.
+   * Soft-delete the given file ids (is_deleted = 1) and stamp deleted_at with
+   * `iso`, batching to stay under the SQLite bind-parameter limit. deleted_at is
+   * only set when not already present (COALESCE), so re-scanning an
+   * already-deleted file does not reset its retention clock. Returns the total
+   * number of affected rows.
    */
-  markDeleted(ids: number[]): number {
+  markDeleted(ids: number[], iso: string = nowIso()): number {
     if (ids.length === 0) {
       return 0;
     }
@@ -158,8 +168,13 @@ export class FileRepository {
     for (let i = 0; i < ids.length; i += MAX_PARAMS_PER_CHUNK) {
       const chunk = ids.slice(i, i + MAX_PARAMS_PER_CHUNK);
       const placeholders = chunk.map(() => '?').join(', ');
-      const stmt = this.db.prepare(`UPDATE files SET is_deleted = 1 WHERE id IN (${placeholders})`);
-      affected += stmt.run(...chunk).changes;
+      const stmt = this.db.prepare(
+        `UPDATE files
+            SET is_deleted = 1,
+                deleted_at = COALESCE(deleted_at, ?)
+          WHERE id IN (${placeholders})`,
+      );
+      affected += stmt.run(iso, ...chunk).changes;
     }
     return affected;
   }

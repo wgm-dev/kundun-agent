@@ -67,10 +67,16 @@ export interface FileRow {
   indexed_at: string | null;
   is_deleted: number;
   importance_score: number;
+  /** When the file was soft-deleted (ISO-8601 UTC), or null when active/legacy. */
+  deleted_at: string | null;
 }
 
-/** Insert shape for `files` (id is assigned by AUTOINCREMENT). */
-export type NewFileRow = Omit<FileRow, 'id'>;
+/**
+ * Insert shape for `files`. `id` is assigned by AUTOINCREMENT; `deleted_at` is
+ * managed by the repository (set on soft-delete, cleared on resurrection), never
+ * supplied by callers.
+ */
+export type NewFileRow = Omit<FileRow, 'id' | 'deleted_at'>;
 
 /** Row of `file_chunks`. */
 export interface FileChunkRow {

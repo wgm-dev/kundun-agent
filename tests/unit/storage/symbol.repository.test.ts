@@ -101,7 +101,7 @@ describe('SymbolRepository', () => {
     repo.replaceForFile(fileId, [makeSymbol({ name: 'ghost' })]);
     expect(repo.findByName('ghost')).toHaveLength(1);
 
-    new FileRepository(t.kdb).markDeleted([fileId]);
+    new FileRepository(t.kdb).markDeleted([fileId], '2026-06-13T12:00:00.000Z');
     expect(repo.findByName('ghost')).toHaveLength(0);
     expect(repo.findByPrefix('gho')).toHaveLength(0);
   });

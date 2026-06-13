@@ -9,7 +9,7 @@ import type { Database } from 'better-sqlite3';
 import { nowIso } from '../utils/time.js';
 
 /** Latest schema version this build knows how to migrate to. */
-export const LATEST_SCHEMA_VERSION = 3;
+export const LATEST_SCHEMA_VERSION = 4;
 
 /** Context passed to each migration's `up` step. */
 export interface MigrationContext {
@@ -233,6 +233,19 @@ CREATE VIRTUAL TABLE chunks_fts USING fts5(content, content='', tokenize='unicod
 INSERT INTO chunks_fts(rowid, content) SELECT id, content FROM file_chunks;
 `;
 
+// --- Migration v4: track WHEN a file was soft-deleted. ---
+//
+// Cleanup retention ("delete soft-deleted files after N days") previously keyed
+// off last_modified_at, which is the file's CONTENT mtime — so a file whose
+// content predated the cutoff could be hard-deleted the instant it was deleted,
+// losing its entire grace window. We add a dedicated deleted_at stamp set when a
+// file is soft-deleted (and cleared on resurrection), and gate retention on it.
+// Existing soft-deleted rows have deleted_at = NULL; the cleanup query treats
+// that as "use last_modified_at" so legacy rows still eventually clean up.
+const V4_FILES_DELETED_AT = `
+ALTER TABLE files ADD COLUMN deleted_at TEXT;
+`;
+
 const migrations: Migration[] = [
   {
     version: 1,
@@ -261,6 +274,12 @@ const migrations: Migration[] = [
       if (ctx.hasFts5) {
         db.exec(V3_CHUNKS_FTS_CONTENTLESS);
       }
+    },
+  },
+  {
+    version: 4,
+    up(db, _ctx) {
+      db.exec(V4_FILES_DELETED_AT);
     },
   },
 ];

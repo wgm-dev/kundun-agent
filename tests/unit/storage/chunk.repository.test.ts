@@ -107,7 +107,7 @@ describe('ChunkRepository', () => {
 
   it('searchFts excludes chunks of soft-deleted files', () => {
     repo.replaceForFile(fileId, [makeChunk({ content: 'findme token', content_hash: 'x' })]);
-    new FileRepository(t.kdb).markDeleted([fileId]);
+    new FileRepository(t.kdb).markDeleted([fileId], '2026-06-13T12:00:00.000Z');
     expect(repo.searchFts('findme', 10)).toHaveLength(0);
   });
 
@@ -143,7 +143,7 @@ describe('ChunkRepository', () => {
     repo.replaceForFile(fileId, [makeChunk({ content: 'orphan-me', content_hash: 'o1' })]);
     expect(repo.countAll()).toBe(1);
 
-    new FileRepository(t.kdb).markDeleted([fileId]);
+    new FileRepository(t.kdb).markDeleted([fileId], '2026-06-13T12:00:00.000Z');
     expect(repo.listOrphanIds()).toHaveLength(1);
 
     const removed = repo.deleteOrphans();

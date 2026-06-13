@@ -105,15 +105,18 @@ describe('cleanup engine (integration)', () => {
     oldDeletedFileId = fileRepo.upsertByRelativePath(
       fileRow({ relative_path: 'src/old.ts', last_modified_at: LONG_AGO }),
     ).id;
-    fileRepo.markDeleted([oldDeletedFileId]);
+    // Retention keys off deleted_at: stamp the deletion long ago so it is past
+    // the cutoff and gets hard-deleted (chunk cascaded).
+    fileRepo.markDeleted([oldDeletedFileId], LONG_AGO);
     chunkRepo.replaceForFile(oldDeletedFileId, [chunkRow({ content: 'cascaded chunk' })]);
 
-    // 2) Recently soft-deleted file with a chunk => NOT cascaded (recent), but an
-    //    orphan chunk (its file is soft-deleted) => removed via the orphan path.
+    // 2) Recently soft-deleted file with a chunk => NOT cascaded (deleted just
+    //    now, within the grace window), but an orphan chunk (its file is
+    //    soft-deleted) => removed via the orphan path.
     const recentDeletedFileId = fileRepo.upsertByRelativePath(
       fileRow({ relative_path: 'src/recent-deleted.ts', last_modified_at: RECENT }),
     ).id;
-    fileRepo.markDeleted([recentDeletedFileId]);
+    fileRepo.markDeleted([recentDeletedFileId], RECENT);
     chunkRepo.replaceForFile(recentDeletedFileId, [chunkRow({ content: 'orphan chunk' })]);
 
     // 3) Active file with a chunk => must survive untouched.

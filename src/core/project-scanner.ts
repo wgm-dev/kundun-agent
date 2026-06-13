@@ -422,7 +422,7 @@ export function createProjectScanner(deps: ProjectScannerDeps): ProjectScanner {
       }
     }
     if (removedIds.length > 0) {
-      fileRepo.markDeleted(removedIds);
+      fileRepo.markDeleted(removedIds, nowIso());
     }
   }
 

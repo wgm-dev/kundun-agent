@@ -67,7 +67,7 @@ describe('FileRepository', () => {
 
   it('re-seeing a soft-deleted file resurrects it and reports changed=true', () => {
     const first = repo.upsertByRelativePath(makeFileRow({ relative_path: 'src/a.ts', hash: 'h1' }));
-    repo.markDeleted([first.id]);
+    repo.markDeleted([first.id], '2026-06-13T12:00:00.000Z');
     expect(repo.getById(first.id)?.is_deleted).toBe(1);
 
     // Same hash, but the row was soft-deleted -> still a change (resurrection).
@@ -80,7 +80,7 @@ describe('FileRepository', () => {
 
   it('markDeleted soft-deletes and removes the file from listActive', () => {
     const { id } = repo.upsertByRelativePath(makeFileRow({ relative_path: 'src/a.ts' }));
-    const affected = repo.markDeleted([id]);
+    const affected = repo.markDeleted([id], '2026-06-13T12:00:00.000Z');
     expect(affected).toBe(1);
     expect(repo.getById(id)?.is_deleted).toBe(1);
     expect(repo.listActive().map((f) => f.id)).not.toContain(id);
@@ -91,10 +91,45 @@ describe('FileRepository', () => {
     expect(repo.markDeleted([])).toBe(0);
   });
 
+  it('listDeletedOlderThan keys off deleted_at, not content mtime (regression: cleanup data loss)', () => {
+    // A file whose CONTENT is old but was deleted JUST NOW must NOT be eligible
+    // for hard-deletion (it still has its full grace window).
+    const recent = repo.upsertByRelativePath(
+      makeFileRow({
+        relative_path: 'src/just-deleted.ts',
+        last_modified_at: '2000-01-01T00:00:00.000Z',
+      }),
+    );
+    repo.markDeleted([recent.id], '2026-06-13T12:00:00.000Z');
+    expect(repo.listDeletedOlderThan('2026-06-06T12:00:00.000Z').map((f) => f.id)).not.toContain(
+      recent.id,
+    );
+
+    // A file deleted long ago IS eligible.
+    const old = repo.upsertByRelativePath(
+      makeFileRow({
+        relative_path: 'src/long-gone.ts',
+        last_modified_at: '2026-06-13T00:00:00.000Z',
+      }),
+    );
+    repo.markDeleted([old.id], '2000-01-01T00:00:00.000Z');
+    expect(repo.listDeletedOlderThan('2026-06-06T12:00:00.000Z').map((f) => f.id)).toContain(
+      old.id,
+    );
+  });
+
+  it('resurrecting a soft-deleted file clears deleted_at', () => {
+    const f = repo.upsertByRelativePath(makeFileRow({ relative_path: 'src/back.ts', hash: 'h1' }));
+    repo.markDeleted([f.id], '2026-06-13T12:00:00.000Z');
+    expect(repo.getById(f.id)?.deleted_at).not.toBeNull();
+    repo.upsertByRelativePath(makeFileRow({ relative_path: 'src/back.ts', hash: 'h2' }));
+    expect(repo.getById(f.id)?.deleted_at).toBeNull();
+  });
+
   it('listAllRelativePaths returns every file including soft-deleted ones', () => {
     const a = repo.upsertByRelativePath(makeFileRow({ relative_path: 'src/a.ts', hash: 'h1' }));
     repo.upsertByRelativePath(makeFileRow({ relative_path: 'src/b.ts', hash: 'h2' }));
-    repo.markDeleted([a.id]);
+    repo.markDeleted([a.id], '2026-06-13T12:00:00.000Z');
 
     const map = repo.listAllRelativePaths();
     expect(map.size).toBe(2);
