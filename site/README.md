@@ -36,15 +36,11 @@ project named `kundun-agent-docs` (see `wrangler.toml`). Each subsequent
 `npm run deploy` uploads a fresh build. The deploy prints the live
 `https://<project>.pages.dev` URL.
 
-To attach the custom domain after the first deploy, run:
-
-```bash
-npx wrangler pages domain add kundun-agent-docs mcp.wgmcode.com
-```
-
-(or do it once in the dashboard — Pages project → Custom domains). Because
-`wgmcode.com` is already on your Cloudflare account, the CNAME is created
-automatically.
+Attach the custom domain after the first deploy **in the dashboard** (Wrangler 4
+no longer has a CLI command for Pages custom domains): Cloudflare dashboard →
+Workers & Pages → `kundun-agent-docs` → **Custom domains** → **Set up a custom
+domain** → `mcp.wgmcode.com`. Because `wgmcode.com` is already on your Cloudflare
+account, the CNAME is created automatically — just confirm.
 
 ## Deploy via Git (Cloudflare Pages dashboard)
 
