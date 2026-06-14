@@ -17,6 +17,9 @@ export default defineConfig({
       title: 'Kundun-Agent',
       description:
         'Local-first MCP memory and codebase intelligence agent for AI coding agents.',
+      // Brand styling matched to wgmcode.com (zinc/dark, Inter, blue accent).
+      customCss: ['@fontsource-variable/inter', './src/styles/theme.css'],
+      favicon: '/favicon.svg',
       social: [
         {
           icon: 'github',
