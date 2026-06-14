@@ -1,0 +1,62 @@
+---
+title: Kundun-Agent
+description: Agente local-first de memória MCP e inteligência de codebase para agentes de programação.
+template: splash
+hero:
+  tagline: Uma camada local-first de inteligência de projeto para agentes de programação — indexa seu código, guarda memória persistente, rastreia tarefas e serve o contexto certo na hora certa.
+  actions:
+    - text: Primeiros passos
+      link: /pt-br/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: Ver no GitHub
+      link: https://github.com/wgm-dev/kundun-agent
+      icon: external
+      variant: minimal
+    - text: Ver no npm
+      link: https://www.npmjs.com/package/kundun-agent
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Instale em segundos
+
+```bash
+npm install -g kundun-agent
+kundun init
+kundun scan
+```
+
+Depois conecte ao seu agente de programação:
+
+```bash
+claude mcp add kundun-agent -- kundun --project-root /caminho/do/seu/projeto mcp
+```
+
+<CardGrid stagger>
+  <Card title="Local-first" icon="laptop">
+    Tudo roda na sua máquina com SQLite. Nenhum conteúdo do projeto sai do seu
+    computador, e arquivos sensíveis nunca são lidos nem armazenados.
+  </Card>
+  <Card title="Servidor MCP" icon="puzzle">
+    18 ferramentas e 8 resources via stdio para Claude Code, Codex, Cursor e
+    qualquer cliente MCP — busca de código, memória, tarefas, diagnósticos e mais.
+  </Card>
+  <Card title="Memória persistente" icon="open-book">
+    Guarde decisões de arquitetura, convenções, bugs conhecidos e regras de
+    domínio para o agente lembrar entre sessões, em vez de reler o codebase todo.
+  </Card>
+  <Card title="Central de controle" icon="setting">
+    Um daemon opcional serve um dashboard web local com sessões, saúde, métricas
+    e um feed de eventos ao vivo.
+  </Card>
+</CardGrid>
+
+## Por que existe
+
+Agentes de programação gastam contexto relendo arquivos que já viram e esquecem
+decisões entre sessões. O Kundun-Agent dá a eles um índice local rápido mais uma
+memória e tarefas persistentes — então recuperam exatamente o que precisam e
+constroem sobre o que já foi decidido.

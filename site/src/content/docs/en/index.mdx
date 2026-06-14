@@ -1,0 +1,62 @@
+---
+title: Kundun-Agent
+description: Local-first MCP memory and codebase intelligence agent for AI coding agents.
+template: splash
+hero:
+  tagline: A local-first project intelligence layer for coding agents — it indexes your codebase, stores persistent memory, tracks tasks, and serves the right context at the right time.
+  actions:
+    - text: Getting started
+      link: /en/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/wgm-dev/kundun-agent
+      icon: external
+      variant: minimal
+    - text: View on npm
+      link: https://www.npmjs.com/package/kundun-agent
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Install in seconds
+
+```bash
+npm install -g kundun-agent
+kundun init
+kundun scan
+```
+
+Then connect it to your coding agent:
+
+```bash
+claude mcp add kundun-agent -- kundun --project-root /path/to/your/project mcp
+```
+
+<CardGrid stagger>
+  <Card title="Local-first" icon="laptop">
+    Everything runs on your machine with SQLite. No project content leaves your
+    computer, and sensitive files are never read or stored.
+  </Card>
+  <Card title="MCP server" icon="puzzle">
+    18 tools and 8 resources over stdio for Claude Code, Codex, Cursor, and any
+    MCP-compatible client — code search, memory, tasks, diagnostics, and more.
+  </Card>
+  <Card title="Persistent memory" icon="open-book">
+    Store architecture decisions, conventions, known bugs, and domain rules so
+    the agent remembers across sessions instead of re-reading the whole codebase.
+  </Card>
+  <Card title="Control center" icon="setting">
+    An optional daemon serves a local web dashboard with sessions, health,
+    metrics, and a live event feed.
+  </Card>
+</CardGrid>
+
+## Why it exists
+
+Coding agents waste context re-reading files they have already seen and forget
+decisions between sessions. Kundun-Agent gives them a fast, local index plus a
+persistent memory and task store — so they retrieve exactly what they need and
+build on what was decided before.

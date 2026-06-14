@@ -10,6 +10,7 @@ export default tseslint.config(
       'node_modules',
       '.kundun',
       'dashboard',
+      'site',
       '**/*.config.js',
       '**/*.config.ts',
     ],

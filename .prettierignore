@@ -3,3 +3,5 @@ coverage
 .kundun
 node_modules
 *.sqlite
+site
+dashboard
