@@ -293,6 +293,18 @@ async function runDaemon(projectRoot: string, serveDashboard: boolean): Promise<
     address = await server.start();
   } catch (err) {
     ctx.close();
+    // EADDRINUSE almost always means another daemon already owns the port — and
+    // because the port is shared across projects (default 37373), the stale-pid
+    // check above (which is per-project) won't have caught a daemon started for a
+    // DIFFERENT project. Give an actionable message instead of a raw stack.
+    if (err instanceof Error && /EADDRINUSE/.test(err.message)) {
+      const { localApiHost: h, localApiPort: p } = ctx.config.desktop;
+      throw new Error(
+        `Port ${h}:${p} is already in use — another Kundun daemon (possibly for ` +
+          `a different project) is likely running there. Stop it first, or set a ` +
+          `different "desktop.localApiPort" in kundun.config.json for this project.`,
+      );
+    }
     throw err;
   }
 
