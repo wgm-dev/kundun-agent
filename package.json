@@ -17,7 +17,7 @@
     "node": ">=20"
   },
   "bin": {
-    "kundun": "./dist/cli/index.js"
+    "kundun": "dist/cli/index.js"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
