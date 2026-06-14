@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Local-first MCP memory and codebase intelligence agent for AI coding agents.",
   "license": "Apache-2.0",
+  "author": "Willian",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wgm-dev/kundun-agent.git"
+  },
+  "homepage": "https://github.com/wgm-dev/kundun-agent#readme",
+  "bugs": {
+    "url": "https://github.com/wgm-dev/kundun-agent/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -36,7 +45,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "build:publish": "tsup --no-sourcemap",
+    "prepublishOnly": "npm run clean && npm run build:publish"
   },
   "keywords": [
     "mcp",

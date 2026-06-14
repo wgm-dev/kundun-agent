@@ -35,12 +35,29 @@ and 8 resources over stdio, started by `kundun mcp`), **heuristic diagnostics**
 registry, persisted health/metrics, local API, and Windows desktop app are
 planned for later milestones.
 
-### Quick start
+### Install
+
+Once published to npm, no clone is required:
+
+```bash
+# One-off, no install:
+npx kundun-agent init
+
+# Or install the CLI globally:
+npm install -g kundun-agent
+kundun --help
+```
+
+From a clone (development), build the local binary first:
 
 ```bash
 npm install
 npm run build
+```
 
+### Quick start
+
+```bash
 # Initialize Kundun in a project (creates .kundun/ and kundun.config.json)
 kundun init
 

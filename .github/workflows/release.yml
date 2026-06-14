@@ -1,0 +1,39 @@
+name: Release
+
+# Publishes the package to npm when a version tag (vX.Y.Z) is pushed.
+# Requires an NPM_TOKEN repository secret (npm automation token). The full check
+# suite must pass before publishing; prepublishOnly rebuilds without sourcemaps.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+
+      # Gate the publish on the same checks CI runs.
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+
+      # prepublishOnly rebuilds without sourcemaps; --provenance attests the build.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
