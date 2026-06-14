@@ -92,21 +92,33 @@ kundun summary
 kundun mcp
 ```
 
-### Use it in Claude Code (and Codex, Gemini)
+### Use it in Claude Code, Codex, or Gemini
 
-After `kundun init` + `kundun scan` in your project, register the MCP server.
-Full setup for all three clients: [Install & MCP setup](docs/en/install.md) ·
-[Instalação e MCP](docs/pt-BR/install.md). The list of tools it exposes:
-[MCP integration](docs/en/mcp-integration.md).
-
-Claude Code, one command:
+First, in the project you want indexed (once):
 
 ```bash
-claude mcp add kundun-agent -- kundun --project-root /abs/path/to/your/project mcp
+kundun init
+kundun scan
 ```
 
-Or as JSON (`.mcp.json` / `~/.claude.json`); use the `npx` form if `kundun`
-isn't on the client's PATH:
+Then register the MCP server with your client. Full setup, config-file forms, and
+troubleshooting: [Install & MCP setup](docs/en/install.md) ·
+[Instalação e MCP](docs/pt-BR/install.md). The tools it exposes:
+[MCP integration](docs/en/mcp-integration.md).
+
+```bash
+# Claude Code (add --scope user to enable it for every project)
+claude mcp add kundun-agent -- kundun --project-root /abs/path/to/your/project mcp
+
+# Codex
+codex mcp add kundun-agent -- kundun --project-root /abs/path/to/your/project mcp
+
+# Gemini CLI (note: no `--` separator)
+gemini mcp add kundun-agent kundun --project-root /abs/path/to/your/project mcp
+```
+
+If `kundun` isn't on the client's PATH, swap it for `npx -y kundun-agent`. As
+JSON (Claude Code `.mcp.json` / `~/.claude.json`; Gemini `~/.gemini/settings.json`):
 
 ```json
 {
@@ -117,6 +129,14 @@ isn't on the client's PATH:
     }
   }
 }
+```
+
+Codex uses TOML (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.kundun-agent]
+command = "kundun"
+args = ["--project-root", "/abs/path/to/your/project", "mcp"]
 ```
 
 ---
