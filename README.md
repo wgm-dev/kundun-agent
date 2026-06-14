@@ -92,22 +92,28 @@ kundun summary
 kundun mcp
 ```
 
-### Use it in Claude Code
+### Use it in Claude Code (and Codex, Gemini)
 
-Add Kundun-Agent as an MCP server (stdio). See the full guide:
-[en](docs/en/mcp-integration.md) · [pt-BR](docs/pt-BR/mcp-integration.md).
+After `kundun init` + `kundun scan` in your project, register the MCP server.
+Full setup for all three clients: [Install & MCP setup](docs/en/install.md) ·
+[Instalação e MCP](docs/pt-BR/install.md). The list of tools it exposes:
+[MCP integration](docs/en/mcp-integration.md).
+
+Claude Code, one command:
+
+```bash
+claude mcp add kundun-agent -- kundun --project-root /abs/path/to/your/project mcp
+```
+
+Or as JSON (`.mcp.json` / `~/.claude.json`); use the `npx` form if `kundun`
+isn't on the client's PATH:
 
 ```json
 {
   "mcpServers": {
     "kundun-agent": {
-      "command": "node",
-      "args": [
-        "/abs/path/to/kundun-agent/dist/cli/index.js",
-        "--project-root",
-        "/abs/path/to/your/project",
-        "mcp"
-      ]
+      "command": "npx",
+      "args": ["-y", "kundun-agent", "--project-root", "/abs/path/to/your/project", "mcp"]
     }
   }
 }
