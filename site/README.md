@@ -20,7 +20,33 @@ npm run preview  # serve the built ./dist locally
 
 Node 22+ is required (pinned via `.nvmrc`).
 
-## Deploy to Cloudflare Pages
+## Deploy with Wrangler (recommended — no dashboard UI)
+
+The simplest path: deploy the built `dist/` straight from the terminal with
+Wrangler. No Git connection, no monorepo build settings.
+
+```bash
+cd site
+npm install
+npm run deploy   # = astro build && wrangler pages deploy dist
+```
+
+The first run prompts a browser login (`wrangler login`) and creates a Pages
+project named `kundun-agent-docs` (see `wrangler.toml`). Each subsequent
+`npm run deploy` uploads a fresh build. The deploy prints the live
+`https://<project>.pages.dev` URL.
+
+To attach the custom domain after the first deploy, run:
+
+```bash
+npx wrangler pages domain add kundun-agent-docs mcp.wgmcode.com
+```
+
+(or do it once in the dashboard — Pages project → Custom domains). Because
+`wgmcode.com` is already on your Cloudflare account, the CNAME is created
+automatically.
+
+## Deploy via Git (Cloudflare Pages dashboard)
 
 This site lives in the `site/` subfolder of the `kundun-agent` monorepo, so the
 Pages project must point its **root directory** at `site`.

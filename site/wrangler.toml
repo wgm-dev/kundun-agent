@@ -1,0 +1,6 @@
+# Cloudflare Pages config for the Kundun-Agent docs site.
+# Deploy from this folder with:  npm run deploy   (or: npx wrangler pages deploy dist)
+# The first deploy creates the Pages project named below; subsequent deploys update it.
+name = "kundun-agent-docs"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-06-14"
