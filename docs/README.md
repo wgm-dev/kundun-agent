@@ -14,6 +14,7 @@ context, all locally with SQLite.
 | Topic / Tópico                           | English                      | Português (BR)                     |
 | ---------------------------------------- | ---------------------------- | ---------------------------------- |
 | Getting started / Primeiros passos       | [en](en/getting-started.md)  | [pt-BR](pt-BR/getting-started.md)  |
+| Web dashboard / Dashboard web            | [en](en/dashboard.md)        | [pt-BR](pt-BR/dashboard.md)        |
 | MCP integration / Integração MCP         | [en](en/mcp-integration.md)  | [pt-BR](pt-BR/mcp-integration.md)  |
 | Configuration / Configuração             | [en](en/configuration.md)    | [pt-BR](pt-BR/configuration.md)    |
 | CLI reference / Referência da CLI        | [en](en/cli-reference.md)    | [pt-BR](pt-BR/cli-reference.md)    |

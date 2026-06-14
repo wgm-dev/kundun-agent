@@ -279,6 +279,25 @@ A typical agent loop:
 With `--json`, stdout is clean machine-readable output and all logs go to
 stderr, so parsing is straightforward.
 
+## Web dashboard
+
+Kundun-Agent ships a small web UI, the **Kundun Control Center**, served by the
+local daemon — no extra toolchain required. Start the daemon and open the
+dashboard:
+
+```bash
+kundun daemon
+```
+
+Then open [http://127.0.0.1:37373/](http://127.0.0.1:37373/) in a browser (the
+default port is `37373`). Paste the token from `.kundun/runtime/token` into the
+field at the top of the page to unlock the data panels — health, sessions,
+metrics, a live event stream, and token-gated actions (scan, cleanup,
+diagnostics, MCP restart). The UI shell is public, but all data requires the
+token, which the page sends as a `Bearer` header. To run the daemon without the
+UI, use `kundun daemon --no-dashboard`. See the
+[Web dashboard](dashboard.md) page for details.
+
 ## Where to go next
 
 - **[Configuration](configuration.md)** — every key in `kundun.config.json`,

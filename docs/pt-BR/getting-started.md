@@ -195,6 +195,25 @@ Para JSON consumível por agente, acrescente `--json` a qualquer comando:
 kundun summary --json
 ```
 
+## Dashboard web
+
+O Kundun-Agent inclui uma pequena interface web, o **Kundun Control Center**,
+servida pelo daemon local — sem necessidade de ferramentas adicionais. Inicie o
+daemon e abra o dashboard:
+
+```bash
+kundun daemon
+```
+
+Em seguida, abra [http://127.0.0.1:37373/](http://127.0.0.1:37373/) no navegador
+(a porta padrão é `37373`). Cole o token de `.kundun/runtime/token` no campo no
+topo da página para liberar os painéis de dados — saúde, sessões, métricas, um
+fluxo de eventos ao vivo e ações protegidas por token (scan, limpeza,
+diagnóstico, reinício do MCP). A casca da interface é pública, mas todos os dados
+exigem o token, que a página envia como cabeçalho `Bearer`. Para executar o
+daemon sem a UI, use `kundun daemon --no-dashboard`. Veja a página
+[Dashboard web](dashboard.md) para mais detalhes.
+
 ## Próximos passos
 
 - Ajuste o que é indexado e a retenção em [Configuração](configuration.md).

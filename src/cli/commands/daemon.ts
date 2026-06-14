@@ -62,15 +62,24 @@ const CLEANUP_AFTER_SCANS = 6;
 const IDLE_AFTER_MS = 5 * 60_000;
 const DISCONNECT_AFTER_MS = 30 * 60_000;
 
+/** Options parsed for `kundun daemon`. */
+interface DaemonOptions {
+  /** Commander's `--no-dashboard`: true by default, false when the flag is set. */
+  dashboard?: boolean;
+}
+
 /** Register `kundun daemon` on the program. */
 export function registerDaemonCommand(program: Command): void {
   program
     .command('daemon')
     .description('Run the long-running local daemon (HTTP/WS API + background timers)')
-    .action(async (_options: unknown, command: Command) => {
+    .option('--no-dashboard', 'Disable serving the bundled web dashboard (API only)')
+    .action(async (options: DaemonOptions, command: Command) => {
       const { projectRoot } = getGlobalOptions(command);
+      // `--no-dashboard` makes commander set `dashboard` to false; default is true.
+      const serveDashboard = options.dashboard ?? true;
       try {
-        await runDaemon(projectRoot);
+        await runDaemon(projectRoot, serveDashboard);
       } catch (err) {
         reportError(err);
       }
@@ -125,7 +134,7 @@ function recordHealth(
 }
 
 /** The core daemon: wire singletons, start the server, install timers + signals. */
-async function runDaemon(projectRoot: string): Promise<void> {
+async function runDaemon(projectRoot: string, serveDashboard: boolean): Promise<void> {
   const ctx: AppContext = createAppContext({ projectRoot });
 
   const runtimeDir = join(ctx.kundunDir, 'runtime');
@@ -276,6 +285,7 @@ async function runDaemon(projectRoot: string): Promise<void> {
     host: ctx.config.desktop.localApiHost,
     port: ctx.config.desktop.localApiPort,
     requestReload,
+    serveDashboard,
   });
 
   let address: LocalServerAddress;
@@ -338,5 +348,12 @@ async function runDaemon(projectRoot: string): Promise<void> {
 
   // The HTTP server + timers keep the event loop alive; print the URL to stdout.
   printLine(`${pc.green('Kundun daemon listening on')} ${pc.cyan(address.url)}`);
+  // Point the user at the bundled web dashboard (served at '/') unless disabled.
+  if (serveDashboard) {
+    printLine(`${pc.green('Dashboard:')} ${pc.cyan(`${address.url}/`)}`);
+    printLine(
+      pc.dim(`Paste the token from ${join(runtimeDir, 'token')} in the UI to unlock data.`),
+    );
+  }
   printLine(pc.dim(`pid ${process.pid} — Ctrl+C to stop`));
 }

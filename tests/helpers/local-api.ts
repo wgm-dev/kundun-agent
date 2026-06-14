@@ -41,6 +41,15 @@ export interface StartTestApiOptions {
   config?: Partial<KundunConfig>;
   /** Install a reload hook on the route context (POST /mcp/restart path). */
   requestReload?: () => void;
+  /**
+   * Explicit static dashboard directory. In tests the source is NOT built, so
+   * the auto-resolution in createLocalServer (relative to the compiled module)
+   * cannot find the packaged `dashboard/` dir; the static-dashboard test passes
+   * the repo's real `dashboard/` here to make serving deterministic. When omitted
+   * the server falls back to its own resolution (and disables static serving if
+   * no candidate exists), preserving the behavior every other test relies on.
+   */
+  dashboardDir?: string;
 }
 
 /** Everything a test needs from a started harness. */
@@ -146,6 +155,7 @@ export async function startTestApi(opts: StartTestApiOptions = {}): Promise<Test
     host,
     port: 0,
     ...(opts.requestReload === undefined ? {} : { requestReload: opts.requestReload }),
+    ...(opts.dashboardDir === undefined ? {} : { dashboardDir: opts.dashboardDir }),
   });
 
   let closed = false;
