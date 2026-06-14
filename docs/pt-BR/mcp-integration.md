@@ -93,7 +93,7 @@ O servidor registra **18 ferramentas** (veja a
 | `kundun.run_diagnostics`         | Executa diagnósticos heurísticos                                                      |
 | `kundun.cleanup`                 | Aplica a política de retenção (suporta `dryRun`)                                      |
 | `kundun.project_summary`         | Visão geral do projeto                                                                |
-| `kundun.get_sessions`            | Sessões (vazio até um milestone futuro)                                               |
+| `kundun.get_sessions`            | Sessões de clientes ativas e recentes                                                 |
 | `kundun.get_health`              | Snapshot de saúde calculado                                                           |
 | `kundun.get_metrics`             | Métricas calculadas a partir das contagens atuais                                     |
 | `kundun.get_recent_events`       | Eventos recentes em memória                                                           |
@@ -123,9 +123,11 @@ kundun://project/metrics
   (passo 2) antes de iniciar o servidor.
 - **Nada sai da sua máquina.** O servidor é local-first; arquivos sensíveis são
   ignorados e seu conteúdo nunca é armazenado nem retornado.
-- **Algumas ferramentas são placeholders** (`get_sessions`, partes de
-  `get_metrics`) até o milestone de daemon/health/métricas; elas retornam
-  payloads vazios seguros com uma nota, em vez de falhar.
+- **Sessões, saúde, métricas e eventos estão ativos.** O servidor registra uma
+  sessão ao conectar e instrumenta cada chamada de tool, então `get_sessions`,
+  `get_health`, `get_metrics` e `get_recent_events` retornam dados reais. Para
+  snapshots periódicos de métricas, scans em segundo plano e o dashboard web,
+  rode também `kundun daemon` (veja o guia do [Dashboard web](dashboard.md)).
 
 ## Veja também
 

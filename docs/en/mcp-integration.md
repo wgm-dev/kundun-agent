@@ -92,7 +92,7 @@ The server registers **18 tools** (see the
 | `kundun.run_diagnostics`         | Run heuristic diagnostics                                             |
 | `kundun.cleanup`                 | Apply the retention policy (supports `dryRun`)                        |
 | `kundun.project_summary`         | High-level project overview                                           |
-| `kundun.get_sessions`            | Sessions (empty until a later milestone)                              |
+| `kundun.get_sessions`            | Active and recent client sessions                                     |
 | `kundun.get_health`              | Computed health snapshot                                              |
 | `kundun.get_metrics`             | Computed metrics from current counts                                  |
 | `kundun.get_recent_events`       | Recent in-memory events                                               |
@@ -121,9 +121,11 @@ kundun://project/metrics
   (step 2) before starting the server.
 - **No content leaves your machine.** The server is local-first; sensitive files
   are skipped and their content is never stored or returned.
-- **Some tools are placeholders** (`get_sessions`, parts of `get_metrics`) until
-  the daemon/health/metrics milestone lands; they return safe empty payloads
-  with a note rather than failing.
+- **Sessions, health, metrics, and events are live.** The server registers a
+  session on connect and instruments every tool call, so `get_sessions`,
+  `get_health`, `get_metrics`, and `get_recent_events` return real data. For
+  periodic metrics snapshots, background scans, and the web dashboard, also run
+  `kundun daemon` (see the [Web dashboard](dashboard.md) guide).
 
 ## See also
 
